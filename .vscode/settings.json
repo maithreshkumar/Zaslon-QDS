@@ -1,0 +1,14 @@
+{
+  "python.analysis.extraPaths": [
+    "shared/backend",
+    "Alice/backend",
+    "Bob/backend",
+    "Attack/backend"
+  ],
+  "python.autoComplete.extraPaths": [
+    "shared/backend",
+    "Alice/backend",
+    "Bob/backend",
+    "Attack/backend"
+  ]
+}

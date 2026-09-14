@@ -1,0 +1,15 @@
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.4
+sqlalchemy==2.0.52
+pymysql==1.2.0
+python-dotenv==1.2.3
+python-multipart==0.0.32
+# Keep NumPy below 2.3 because the pinned CUDA-Q image supplies
+# cupy-cuda12x 13.4.1, whose supported range is NumPy >=1.22,<2.3.
+numpy==2.2.6
+scipy==1.18.1
+cryptography==50.0.1
+httpx==0.28.1
+pytest==9.1.1
+PyYAML==6.0.3

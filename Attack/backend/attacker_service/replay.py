@@ -1,0 +1,4 @@
+ATTACK_TYPE = "REPLAY"
+TARGET = "PROTOCOL_SESSION"
+DETECTION = "one_time_nonce_ledger"
+

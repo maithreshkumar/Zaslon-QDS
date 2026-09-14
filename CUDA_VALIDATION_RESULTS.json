@@ -1,0 +1,101 @@
+{
+  "generated_at": "2026-09-13T12:27:31.088605+00:00",
+  "shots_per_basis": 256,
+  "noise": {
+    "bit_flip": 0.12,
+    "phase_flip": 0.1,
+    "depolarizing": 0.08,
+    "measurement_error": 0.05,
+    "output_bit_flip": 0.06,
+    "output_phase_flip": 0.04,
+    "output_depolarizing": 0.07
+  },
+  "noise_semantics": {
+    "model": "CANONICAL_INDEPENDENT_PAULI_V1",
+    "composition_order": [
+      "BELL_SOURCE_PREPARATION",
+      "BELL_DISTRIBUTION_X",
+      "BELL_DISTRIBUTION_Z",
+      "BELL_DISTRIBUTION_DEPOLARIZING_PAULI",
+      "ATTACK_AT_DECLARED_BOUNDARY",
+      "TELEPORTATION_AND_FEED_FORWARD_CORRECTION",
+      "BOB_OUTPUT_X",
+      "BOB_OUTPUT_Z",
+      "BOB_OUTPUT_DEPOLARIZING_PAULI",
+      "BASIS_ROTATION",
+      "CLASSICAL_MEASUREMENT_BIT_FLIP"
+    ],
+    "locations": {
+      "bit_flip": "BELL_DISTRIBUTION_NOISE",
+      "phase_flip": "BELL_DISTRIBUTION_NOISE",
+      "depolarizing": "BELL_DISTRIBUTION_NOISE",
+      "output_bit_flip": "BOB_OUTPUT_OR_MEMORY_NOISE",
+      "output_phase_flip": "BOB_OUTPUT_OR_MEMORY_NOISE",
+      "output_depolarizing": "BOB_OUTPUT_OR_MEMORY_NOISE",
+      "measurement_error": "MEASUREMENT_NOISE"
+    },
+    "independence_assumption": "Each configured Bernoulli event is sampled independently. Triggered Paulis compose in the documented order; later events never replace earlier ones."
+  },
+  "results": {
+    "reference": {
+      "z_error_rate": 0.2578125,
+      "x_error_rate": 0.23046875,
+      "combined_qber": 0.244140625,
+      "engine": {
+        "engine": "REFERENCE_STATEVECTOR",
+        "target": "numpy-cpu-explicit-development",
+        "gpu": false,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "maximum_circuit_width": 3,
+        "available_gpus": null
+      },
+      "runtime_seconds": 0.17305818400006956
+    },
+    "qiskit_aer": {
+      "z_error_rate": 0.2578125,
+      "x_error_rate": 0.23046875,
+      "combined_qber": 0.244140625,
+      "engine": {
+        "engine": "QISKIT_AER",
+        "target": "aer_simulator-cpu-independent-validator",
+        "gpu": false,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "maximum_circuit_width": 3,
+        "available_gpus": null
+      },
+      "runtime_seconds": 0.7693681449999303
+    },
+    "cudaq": {
+      "z_error_rate": 0.2578125,
+      "x_error_rate": 0.23046875,
+      "combined_qber": 0.244140625,
+      "engine": {
+        "engine": "CUDA-Q",
+        "target": "nvidia",
+        "gpu": true,
+        "fallback_used": false,
+        "fallback_reason": null,
+        "maximum_circuit_width": 3,
+        "available_gpus": 1
+      },
+      "runtime_seconds": 0.5465019949999714
+    }
+  },
+  "comparisons": {
+    "qiskit_aer": {
+      "z_absolute_difference": 0.0,
+      "x_absolute_difference": 0.0,
+      "within_configured_tolerance_0_10": true,
+      "method": "ABSOLUTE_QBER_DIFFERENCE_NOT_STATISTICAL_EQUIVALENCE"
+    },
+    "cudaq": {
+      "z_absolute_difference": 0.0,
+      "x_absolute_difference": 0.0,
+      "within_configured_tolerance_0_10": true,
+      "method": "ABSOLUTE_QBER_DIFFERENCE_NOT_STATISTICAL_EQUIVALENCE"
+    }
+  },
+  "passed": true
+}

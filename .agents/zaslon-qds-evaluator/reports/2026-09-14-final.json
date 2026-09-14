@@ -1,0 +1,44 @@
+{
+  "schema": "zaslon.independent-evaluation.v1",
+  "generated_at": "2026-09-14",
+  "score": 96.1,
+  "target_score": 95.0,
+  "target_met": true,
+  "readiness_blocking_implementable_defects": [],
+  "scores": {
+    "scientific_correctness": 97,
+    "sih_requirement_coverage": 98,
+    "quantum_implementation": 97,
+    "security_implementation": 97,
+    "attack_coverage": 96,
+    "statistical_rigor": 95,
+    "cudaq_sequence_integration": 95,
+    "reproducibility": 98,
+    "docker_gpu_readiness": 99,
+    "evaluator_demo_readiness": 98,
+    "research_paper_readiness": 87
+  },
+  "evidence": {
+    "detector_records": 1440,
+    "calibration_records": 720,
+    "held_out_records": 720,
+    "held_out_negative_controls": 160,
+    "held_out_positive_attacks": 560,
+    "held_out_false_positive_rate": 0.0,
+    "held_out_sensitivity": 0.632142857142857,
+    "held_out_balanced_accuracy": 0.816071428571429,
+    "honest_acceptance_rate": 1.0,
+    "pinned_python": "3.12.10",
+    "pinned_numpy": "2.2.6",
+    "docker_acceptance": "PASSED",
+    "cudaq_target": "nvidia",
+    "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "source_tree_sha512": "8fda2003d15d190a18d81576de01f0cf70b36286f325e0a812dd268dfd6d6cd5620155289b2b7ac677e5485740b0c56898a3bd63cb659bcdce576905306f07be"
+  },
+  "readiness": {
+    "sih": true,
+    "paper_1_empirical_systems_foundation": true,
+    "paper_2_formal_or_physical_claims": false
+  },
+  "remaining_limit_class": "RESEARCH_EXPERIMENTAL_SCALE_OR_HARDWARE_ONLY"
+}

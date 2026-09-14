@@ -1,0 +1,32 @@
+{
+  "schema": "zaslon.evaluator-report.v1",
+  "iteration": 1,
+  "date": "2026-09-13",
+  "read_only": true,
+  "scores": {
+    "scientific_correctness": 88,
+    "sih_requirement_coverage": 91,
+    "quantum_implementation": 94,
+    "security_implementation": 89,
+    "attack_coverage": 89,
+    "statistical_rigor": 82,
+    "cudaq_sequence_integration": 76,
+    "reproducibility": 91,
+    "docker_gpu_readiness": 96,
+    "evaluator_demo_readiness": 91,
+    "research_paper_readiness": 70
+  },
+  "overall": 87.0,
+  "stop_condition_met": false,
+  "implementable_findings": [
+    "SeQUeNCe delivery was post-hoc relative to monolithic CUDA-Q correction.",
+    "Threshold selection and performance used the same records.",
+    "Multi-verifier sessions did not carry recipient-specific network evidence.",
+    "Attestation/integrity metadata validation was incomplete.",
+    "Science documents and provenance fields were stale or undeclared."
+  ],
+  "research_pending": [
+    "Formal unforgeability, transferability and non-repudiation proofs.",
+    "Physical distributed quantum networking and hardware evidence."
+  ]
+}

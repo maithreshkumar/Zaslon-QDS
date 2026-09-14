@@ -1,0 +1,13 @@
+{
+  "name": "zaslon-qds-laboratory",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["Alice", "Attack", "Bob"],
+  "scripts": {
+    "dev:alice": "npm --workspace Alice run dev",
+    "dev:attack": "npm --workspace Attack run dev",
+    "dev:bob": "npm --workspace Bob run dev",
+    "build": "npm run build --workspaces",
+    "test": "python -m pytest Attack/backend/tests shared/backend/tests -q"
+  }
+}

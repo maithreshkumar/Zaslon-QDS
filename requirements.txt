@@ -1,0 +1,18 @@
+fastapi==0.141.1
+uvicorn[standard]==0.52.4
+pydantic==2.13.4
+sqlalchemy==2.0.52
+pymysql==1.2.0
+python-dotenv==1.2.3
+python-multipart==0.0.32
+# Keep the host/debug environment aligned with the CUDA-Q worker image.
+numpy==2.2.6
+scipy==1.18.1
+cryptography==50.0.1
+# CUDA-Q publishes Linux wheels; Windows runs this dependency through WSL2.
+cudaq==0.15.1; sys_platform == "linux"
+qiskit==2.5.2
+qiskit-aer==0.17.2
+sequence==0.7.6; python_version >= "3.12"
+pytest==9.1.1
+httpx==0.28.1

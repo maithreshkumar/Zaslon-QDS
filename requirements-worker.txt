@@ -1,0 +1,7 @@
+-r requirements-api.txt
+# CUDA-Q 0.15.1 is supplied by the pinned NVIDIA NGC base image.
+qiskit==2.5.2
+qiskit-aer==0.17.2
+# SeQUeNCe 1.0.0 requires NumPy >=2.3.5, which conflicts with CUDA-Q's
+# cupy-cuda12x 13.4.1 requirement (NumPy <2.3). 0.7.6 supports NumPy 2.2.6.
+sequence==0.7.6

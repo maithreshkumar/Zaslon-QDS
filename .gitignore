@@ -1,0 +1,14 @@
+node_modules/
+dist/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.tsbuildinfo
+*.db
+.env
+.env.auth
+**/.env.local
+.venv/
+.venv-wsl/
+coverage/
+release/*.zip

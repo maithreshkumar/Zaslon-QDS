@@ -1,0 +1,207 @@
+name: zaslon-qds
+
+x-database-environment: &database-environment
+  MYSQL_HOST: mysql
+  MYSQL_PORT: "3306"
+  MYSQL_DATABASE: ${ZASLON_DB_NAME:-zaslon_qds}
+  MYSQL_USER: ${ZASLON_DB_USER:-zaslon_app}
+  MYSQL_PASSWORD_FILE: /run/secrets/zaslon/db_app_password
+
+x-python-service: &python-service
+  build:
+    context: .
+    dockerfile: docker/api.Dockerfile
+  environment:
+    <<: *database-environment
+    ZASLON_EXECUTION_MODE: worker_queue
+    ZASLON_ALICE_API_KEY_FILE: /run/secrets/zaslon/alice_api_key
+    ZASLON_BOB_API_KEY_FILE: /run/secrets/zaslon/bob_api_key
+    ZASLON_ATTACK_API_KEY_FILE: /run/secrets/zaslon/attack_api_key
+    ZASLON_JOB_PAYLOAD_KEY_FILE: /run/secrets/zaslon/job_payload_key
+    ZASLON_ARTIFACT_ATTESTATION_KEY_FILE: /run/secrets/zaslon/artifact_attestation_key
+  volumes:
+    - local_secrets:/run/secrets/zaslon:ro
+  networks:
+    - backend
+
+services:
+  secrets-init:
+    build:
+      context: .
+      dockerfile: docker/api.Dockerfile
+    container_name: zaslon-secrets-init
+    user: "0:0"
+    restart: "no"
+    env_file:
+      - path: .env.auth
+        required: false
+    environment:
+      ZASLON_DB_PASSWORD: ${ZASLON_DB_PASSWORD:-}
+      ZASLON_DB_ROOT_PASSWORD: ${ZASLON_DB_ROOT_PASSWORD:-}
+      ZASLON_SECRET_DIR: /run/secrets/zaslon
+    command: ["python", "-m", "zaslon_shared.secrets_init"]
+    volumes:
+      - local_secrets:/run/secrets/zaslon
+    networks:
+      - backend
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+
+  mysql:
+    image: mysql:9.7.2
+    container_name: zaslon-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD_FILE: /run/secrets/zaslon/db_root_password
+      MYSQL_DATABASE: ${ZASLON_DB_NAME:-zaslon_qds}
+      MYSQL_USER: ${ZASLON_DB_USER:-zaslon_app}
+      MYSQL_PASSWORD_FILE: /run/secrets/zaslon/db_app_password
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    volumes:
+      - mysql_data:/var/lib/mysql
+      - local_secrets:/run/secrets/zaslon:ro
+    networks:
+      - backend
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "--host=127.0.0.1", "--silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      secrets-init:
+        condition: service_completed_successfully
+
+  migrate:
+    <<: *python-service
+    container_name: zaslon-migrate
+    restart: "no"
+    command: ["python", "-m", "zaslon_shared.migrate"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  api:
+    <<: *python-service
+    container_name: zaslon-api
+    restart: unless-stopped
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:8000:8000"
+    networks:
+      - backend
+      - edge
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request as u; d=json.load(u.urlopen('http://127.0.0.1:8000/api/v1/health')); raise SystemExit(0 if d.get('status') == 'ok' else 1)"
+      interval: 10s
+      timeout: 5s
+      retries: 30
+      start_period: 20s
+
+  quantum-worker:
+    build:
+      context: .
+      dockerfile: docker/quantum-worker.Dockerfile
+    container_name: zaslon-quantum-worker
+    restart: unless-stopped
+    environment:
+      <<: *database-environment
+      ZASLON_ALICE_API_KEY_FILE: /run/secrets/zaslon/alice_api_key
+      ZASLON_BOB_API_KEY_FILE: /run/secrets/zaslon/bob_api_key
+      ZASLON_ATTACK_API_KEY_FILE: /run/secrets/zaslon/attack_api_key
+      ZASLON_JOB_PAYLOAD_KEY_FILE: /run/secrets/zaslon/job_payload_key
+      ZASLON_ARTIFACT_ATTESTATION_KEY_FILE: /run/secrets/zaslon/artifact_attestation_key
+      ZASLON_EXECUTION_MODE: worker_queue
+      ZASLON_QUANTUM_ENGINE: cudaq
+      ZASLON_CUDAQ_TARGET: nvidia
+      ZASLON_CUDAQ_TARGET_OPTION: fp32
+      ZASLON_SEQUENCE_ENABLED: "true"
+      NVIDIA_VISIBLE_DEVICES: all
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility
+    gpus: all
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    volumes:
+      - local_secrets:/run/secrets/zaslon:ro
+    networks:
+      - backend
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "python", "-m", "zaslon_shared.worker_health"]
+      interval: 15s
+      timeout: 10s
+      retries: 20
+      start_period: 60s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: docker/frontend.Dockerfile
+    container_name: zaslon-frontend
+    restart: unless-stopped
+    environment:
+      API_UPSTREAM: http://api:8000
+      ZASLON_ALICE_API_KEY_FILE: /run/secrets/zaslon/alice_api_key
+      ZASLON_BOB_API_KEY_FILE: /run/secrets/zaslon/bob_api_key
+      ZASLON_ATTACK_API_KEY_FILE: /run/secrets/zaslon/attack_api_key
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "127.0.0.1:5173:5173"
+      - "127.0.0.1:5174:5174"
+      - "127.0.0.1:5175:5175"
+    volumes:
+      - local_secrets:/run/secrets/zaslon:ro
+    networks:
+      - backend
+      - edge
+    read_only: true
+    tmpfs:
+      - /tmp:size=64m,mode=1777
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--spider", "http://127.0.0.1:5173/"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+networks:
+  backend:
+    name: zaslon-backend
+    internal: true
+  edge:
+    name: zaslon-edge
+
+volumes:
+  mysql_data:
+    name: zaslon_mysql_data
+  local_secrets:
+    name: zaslon_local_secrets

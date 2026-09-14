@@ -1,0 +1,101 @@
+pid /tmp/nginx.pid;
+error_log /dev/stderr notice;
+
+events {}
+
+http {
+    include /etc/nginx/mime.types;
+    default_type application/octet-stream;
+    access_log /dev/stdout;
+    client_body_temp_path /tmp/client_body;
+    proxy_temp_path /tmp/proxy;
+    fastcgi_temp_path /tmp/fastcgi;
+    uwsgi_temp_path /tmp/uwsgi;
+    scgi_temp_path /tmp/scgi;
+    client_max_body_size 26m;
+    resolver 127.0.0.11 ipv6=off valid=10s;
+    map "" $api_upstream { default ${API_UPSTREAM}; }
+
+    proxy_http_version 1.1;
+    proxy_set_header Host api;
+    proxy_set_header X-Forwarded-Proto http;
+    proxy_read_timeout 310s;
+    proxy_send_timeout 310s;
+
+    server {
+        listen 5173;
+        server_name _;
+        root /usr/share/nginx/html/alice;
+
+        location = /api/v1/health { proxy_pass $api_upstream; }
+
+        location ^~ /api/v1/alice/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_ALICE_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/v1/sessions/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_ALICE_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location = /api/v1/validate/qiskit {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_ALICE_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/v1/jobs/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_ALICE_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/ { return 403; }
+        location / { try_files $uri $uri/ /index.html; }
+    }
+
+    server {
+        listen 5174;
+        server_name _;
+        root /usr/share/nginx/html/attack;
+
+        location = /api/v1/health { proxy_pass $api_upstream; }
+
+        location ^~ /api/v1/attacks/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_ATTACK_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location = /api/v1/sessions {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_ATTACK_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/v1/results/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_ATTACK_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/v1/jobs/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_ATTACK_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/ { return 403; }
+        location / { try_files $uri $uri/ /index.html; }
+    }
+
+    server {
+        listen 5175;
+        server_name _;
+        root /usr/share/nginx/html/bob;
+
+        location = /api/v1/health { proxy_pass $api_upstream; }
+
+        location ^~ /api/v1/bob/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_BOB_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/v1/sessions/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_BOB_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/v1/jobs/ {
+            proxy_set_header X-ZASLON-API-Key "${ZASLON_BOB_API_KEY}";
+            proxy_pass $api_upstream;
+        }
+        location ^~ /api/ { return 403; }
+        location / { try_files $uri $uri/ /index.html; }
+    }
+}
