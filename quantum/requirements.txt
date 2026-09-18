@@ -1,0 +1,8 @@
+fastapi>=0.110.0
+uvicorn[standard]>=0.28.0
+pydantic>=2.6.0
+numpy>=1.26.0
+# Official NVIDIA CUDA-Q package on Linux x86_64
+cudaq>=0.16.0; sys_platform == 'linux'
+# Argonne National Laboratory SeQUeNCe Simulator
+sequence==1.2.0
