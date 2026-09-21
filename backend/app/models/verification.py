@@ -30,6 +30,7 @@ class VerificationResultModel(Base):
 
     id = Column(String(36), primary_key=True, default=lambda: str(uuid.uuid4()))
     session_id = Column(String(36), ForeignKey("sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    transmission_id = Column(String(36), ForeignKey("transmission_packages.id", ondelete="SET NULL"), nullable=True, unique=True, index=True)
     sample_id = Column(String(36), ForeignKey("verification_samples.id", ondelete="CASCADE"), nullable=True)
     sample_size = Column(Integer, nullable=False, default=0)
     match_count = Column(Integer, nullable=False, default=0)

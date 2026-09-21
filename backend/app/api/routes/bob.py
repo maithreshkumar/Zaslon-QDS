@@ -7,7 +7,7 @@ import json
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from fastapi.responses import JSONResponse, FileResponse
 from sqlalchemy.orm import Session
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 from ...db.session import get_db
 from ...models.user import UserModel
@@ -80,7 +80,8 @@ def verify_package(
         db,
         session_id=pkg.session_id,
         verifier_id=user.username,
-        sample_ratio=request.sample_ratio or 0.05
+        sample_ratio=request.sample_ratio or 0.05,
+        transmission_id=transmission_id
     )
 
     # Synchronize transmission status
@@ -91,6 +92,47 @@ def verify_package(
     db.commit()
 
     return result
+
+
+@router.get("/inbox/{transmission_id}/verification")
+def get_inbox_package_verification(
+    transmission_id: str,
+    user: UserModel = Depends(require_role(["BOB", "ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """
+    Bob queries the authoritative stored verification result and explainability evidence
+    for an incoming inbox package. If not yet verified, returns has_verification=False.
+    """
+    pkg = db.query(TransmissionPackageModel).filter(TransmissionPackageModel.id == transmission_id).first()
+    if not pkg:
+        raise HTTPException(status_code=404, detail="Package not found in inbox")
+
+    res = db.query(VerificationResultModel).filter(
+        VerificationResultModel.transmission_id == transmission_id
+    ).order_by(VerificationResultModel.verified_at.desc()).first()
+
+    if not res:
+        # Fallback query by session_id
+        res = db.query(VerificationResultModel).filter(
+            VerificationResultModel.session_id == pkg.session_id
+        ).order_by(VerificationResultModel.verified_at.desc()).first()
+
+    if not res:
+        return {
+            "has_verification": False,
+            "status": pkg.status,
+            "tracking_no": pkg.package_tracking_no
+        }
+
+    evidence = _build_verification_evidence(res, pkg)
+    return {
+        "has_verification": True,
+        "status": pkg.status,
+        "tracking_no": pkg.package_tracking_no,
+        "verification_id": res.id,
+        "evidence": evidence
+    }
 
 
 @router.get("/verifications", response_model=List[VerificationResultResponse])
@@ -128,52 +170,37 @@ def list_security_events(
     ]
 
 
-@router.get("/verifications/{verification_id}/evidence")
-def get_verification_evidence(
-    verification_id: str,
-    user: UserModel = Depends(require_role(["BOB", "ADMIN"])),
-    db: Session = Depends(get_db)
-):
-    """
-    Detailed explainability endpoint returning contingency tables, exact Fisher p-values,
-    channel baseline comparisons, and the 5-layer threat defense barrier evaluation.
-    """
-    res = db.query(VerificationResultModel).filter(VerificationResultModel.id == verification_id).first()
-    if not res:
-        raise HTTPException(status_code=404, detail="Verification record not found")
-
-    pkg = db.query(TransmissionPackageModel).filter(TransmissionPackageModel.session_id == res.session_id).first()
-
-    # Formulate 5-layer defense barrier checklist
+def _build_verification_evidence(res: VerificationResultModel, pkg: Optional[TransmissionPackageModel] = None) -> Dict[str, Any]:
+    """Helper to formulate the 5-layer threat defense barrier checklist and statistical evidence."""
     barriers = [
         {
             "barrier_name": "1. Verifier Authorization Barrier",
             "threat_checked": "UNAUTHORIZED_VERIFICATION",
-            "status": "FAILED" if res.attack_category == "UNAUTHORIZED_VERIFICATION" else "PASSED",
+            "status": "FAILED" if res.attack_category in ("UNAUTHORIZED_VERIFICATION", "ACCESS_UNAUTHORIZED_VERIFIER_PROBE", "PROTOCOL_VERIFIER_SPOOFING") else "PASSED",
             "detail": "Authenticated verifier identity matches designated session recipient"
         },
         {
             "barrier_name": "2. Signer Identity Binding Barrier",
             "threat_checked": "IMPERSONATION",
-            "status": "FAILED" if res.attack_category == "IMPERSONATION" else "PASSED",
+            "status": "FAILED" if res.attack_category in ("IMPERSONATION", "PROTOCOL_SIGNER_IMPERSONATION") else "PASSED",
             "detail": "Declaration signer matches authentic session creator (Alice)"
         },
         {
             "barrier_name": "3. Anti-Replay Single-Use Token Barrier",
             "threat_checked": "REPLAY",
-            "status": "FAILED" if res.attack_category == "REPLAY" else "PASSED",
+            "status": "FAILED" if res.attack_category in ("REPLAY", "PROTOCOL_REPLAY_CONSUMED_TOKEN", "PROTOCOL_EXPIRED_WINDOW_REPLAY") else "PASSED",
             "detail": "Public declaration token unconsumed and within 300s freshness window"
         },
         {
             "barrier_name": "4. Cryptographic SHA-512 Integrity Barrier",
             "threat_checked": "INTEGRITY_TAMPERING",
-            "status": "FAILED" if res.attack_category == "INTEGRITY_TAMPERING" else "PASSED",
+            "status": "FAILED" if res.attack_category in ("INTEGRITY_TAMPERING", "FILE_INTEGRITY_TAMPERING", "QDS_PACKAGE_TAMPERING", "ARTIFACT_PAYLOAD_SUBSTITUTION", "ARTIFACT_DIGEST_MISMATCH", "ARTIFACT_METADATA_TAMPERING") else "PASSED",
             "detail": "Recomputed SHA-512 digest matches original committed digest"
         },
         {
             "barrier_name": "5. Quantum Teleportation Fisher Exact Test Barrier",
             "threat_checked": "FORGERY",
-            "status": "FAILED" if res.attack_category == "FORGERY" else "PASSED",
+            "status": "FAILED" if res.attack_category in ("FORGERY", "QUANTUM_BIT_FLIP_FORGERY", "QUANTUM_PHASE_FLIP_DEPOLARIZATION", "QUANTUM_BASIS_ALTERATION", "QUANTUM_ENTANGLEMENT_INTERCEPTION_DOS") else "PASSED",
             "detail": f"Sample mismatch ratio ({res.mismatch_ratio:.2%}) evaluated against 1.00% channel baseline via hypergeometric test"
         }
     ]
@@ -205,6 +232,24 @@ def get_verification_evidence(
         },
         "defense_barriers": barriers
     }
+
+
+@router.get("/verifications/{verification_id}/evidence")
+def get_verification_evidence(
+    verification_id: str,
+    user: UserModel = Depends(require_role(["BOB", "ADMIN"])),
+    db: Session = Depends(get_db)
+):
+    """
+    Detailed explainability endpoint returning contingency tables, exact Fisher p-values,
+    channel baseline comparisons, and the 5-layer threat defense barrier evaluation.
+    """
+    res = db.query(VerificationResultModel).filter(VerificationResultModel.id == verification_id).first()
+    if not res:
+        raise HTTPException(status_code=404, detail="Verification record not found")
+
+    pkg = db.query(TransmissionPackageModel).filter(TransmissionPackageModel.session_id == res.session_id).first()
+    return _build_verification_evidence(res, pkg)
 
 
 @router.post("/manual-verify", response_model=VerificationResultResponse)

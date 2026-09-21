@@ -26,6 +26,7 @@ class VerificationSampleResponse(BaseModel):
 class VerificationResultResponse(BaseModel):
     id: str
     session_id: str
+    transmission_id: Optional[str] = None
     sample_id: Optional[str] = None
     sample_size: int
     match_count: int

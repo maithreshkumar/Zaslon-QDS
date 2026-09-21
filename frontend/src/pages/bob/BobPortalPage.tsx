@@ -169,6 +169,48 @@ export const BobPortalPage: React.FC = () => {
     }
   }, [token, activeTab]);
 
+  // Rehydrate stored verification evidence whenever selectedPackage changes
+  useEffect(() => {
+    let isMounted = true;
+    if (!selectedPackage || !token) {
+      setDetailedEvidence(null);
+      return;
+    }
+
+    const loadPackageVerification = async () => {
+      try {
+        const res = await fetch(`/api/v1/bob/inbox/${selectedPackage.id}/verification`, {
+          headers: { Authorization: `Bearer ${token}` }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (isMounted) {
+            if (data.has_verification && data.evidence) {
+              setDetailedEvidence(data.evidence);
+            } else {
+              setDetailedEvidence(null);
+            }
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load verification for package:', err);
+      }
+    };
+
+    loadPackageVerification();
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedPackage?.id, token]);
+
+  const isAlreadyVerified = Boolean(
+    selectedPackage && (
+      selectedPackage.status === 'VERIFIED' ||
+      selectedPackage.status === 'REJECTED' ||
+      detailedEvidence !== null
+    )
+  );
+
   // Execute Zaslon-QDS Verification for Inbox Package
   const handleExecuteVerification = async () => {
     if (!selectedPackage) return;
@@ -439,7 +481,6 @@ export const BobPortalPage: React.FC = () => {
                         key={pkg.id}
                         onClick={() => {
                           setSelectedPackage(pkg);
-                          setDetailedEvidence(null);
                         }}
                         className={`p-4 rounded-xl border transition cursor-pointer ${
                           isSelected
@@ -583,13 +624,33 @@ export const BobPortalPage: React.FC = () => {
 
                     <button
                       onClick={handleExecuteVerification}
-                      disabled={isVerifying}
-                      className="w-full py-3 rounded-xl bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white text-xs font-bold uppercase tracking-wider font-mono flex items-center justify-center space-x-2 shadow-lg transition"
+                      disabled={isVerifying || isAlreadyVerified}
+                      className={`w-full py-3 rounded-xl text-xs font-bold uppercase tracking-wider font-mono flex items-center justify-center space-x-2 shadow-lg transition ${
+                        isAlreadyVerified
+                          ? selectedPackage?.status === 'VERIFIED' || detailedEvidence?.security_decision === 'VERIFIED'
+                            ? 'bg-emerald-950/80 border border-emerald-500/50 text-emerald-400 cursor-not-allowed opacity-90'
+                            : 'bg-red-950/80 border border-red-500/50 text-red-400 cursor-not-allowed opacity-90'
+                          : 'bg-gradient-to-r from-emerald-600 to-cyan-600 hover:from-emerald-500 hover:to-cyan-500 text-white cursor-pointer'
+                      }`}
                     >
                       {isVerifying ? (
                         <>
                           <RefreshCw className="w-4 h-4 animate-spin" />
                           <span>Executing 15-Check Zaslon-QDS Verification...</span>
+                        </>
+                      ) : isAlreadyVerified ? (
+                        <>
+                          {selectedPackage?.status === 'VERIFIED' || detailedEvidence?.security_decision === 'VERIFIED' ? (
+                            <>
+                              <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                              <span>VERIFICATION COMPLETE: VERIFIED &amp; ACCEPTED (Stored)</span>
+                            </>
+                          ) : (
+                            <>
+                              <XCircle className="w-4 h-4 text-red-400" />
+                              <span>VERIFICATION COMPLETE: REJECTED (Stored)</span>
+                            </>
+                          )}
                         </>
                       ) : (
                         <>

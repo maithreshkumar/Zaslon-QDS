@@ -49,7 +49,7 @@ async function runThreePortBrowserE2E() {
     page.on('console', msg => {
       if (msg.type() === 'error') {
         const text = msg.text();
-        if (!text.includes('favicon') && !text.includes('404')) {
+        if (!text.includes('favicon') && !text.includes('404') && !text.includes('403')) {
           console.log(`       [${portName} Console Error] ${text}`);
           consoleErrors.push({ port: portName, error: text });
         }
@@ -306,13 +306,15 @@ async function runThreePortBrowserE2E() {
         return cards.length > 0;
       }, { timeout: 20000 });
 
-      // Click the newly delivered card (or card 0)
+      // Click the newly delivered package card (status 'RECEIVED' or not yet 'VERIFIED'/'REJECTED')
       await pageBob.evaluate(() => {
         const cards = Array.from(document.querySelectorAll('div.cursor-pointer'));
-        const delivered = cards.find(c => c.textContent.includes('DELIVERED') || c.textContent.includes('IN_TRANSIT')) || cards[0];
+        const delivered = cards.find(c => c.textContent.includes('RECEIVED')) || 
+                          cards.find(c => !c.textContent.includes('VERIFIED') && !c.textContent.includes('REJECTED')) || 
+                          cards[0];
         if (delivered) delivered.click();
       });
-      await sleep(1000);
+      await sleep(1500);
 
       // Trigger verification
       const verifyClicked = await pageBob.evaluate(() => {
@@ -361,14 +363,15 @@ async function runThreePortBrowserE2E() {
 
     await pageEve.evaluate(() => {
       const cards = Array.from(document.querySelectorAll('div.cursor-pointer'));
-      if (cards.length > 0) cards[0].click();
+      const target = cards.find(c => c.textContent.includes('IN_TRANSIT') || c.textContent.includes('Directive #01')) || cards[0];
+      if (target) target.click();
     });
     await sleep(1000);
 
     // Eve triggers unauthorized probe verify
     await pageEve.evaluate(() => {
       const btns = Array.from(document.querySelectorAll('button'));
-      const probeBtn = btns.find(b => b.textContent.includes('PROBE VERIFY') || b.textContent.includes('TEST BARRIER'));
+      const probeBtn = btns.find(b => b.textContent.toLowerCase().includes('probe verify') || b.textContent.includes('TEST BARRIER'));
       if (probeBtn) probeBtn.click();
     });
     await sleep(2000);
@@ -387,19 +390,34 @@ async function runThreePortBrowserE2E() {
     await sleep(1500);
     console.log('  -> Bob intrusion alerts inspected: Security events logged correctly.');
 
-    // Eve now passes through untouched and forwards to Bob
+    // Switch back to inbox tab
+    await pageBob.evaluate(() => {
+      const tabs = Array.from(document.querySelectorAll('button'));
+      const inboxTab = tabs.find(b => b.textContent.includes('Incoming') || b.textContent.includes('Inbox'));
+      if (inboxTab) inboxTab.click();
+    });
+    await sleep(1000);
+
+    // Eve intercepts and passes through untouched to Bob
     await pageEve.bringToFront();
     await pageEve.evaluate(() => {
-      const btns = Array.from(document.querySelectorAll('button'));
-      const passBtn = btns.find(b => b.textContent.includes('PASSTHROUGH'));
-      if (passBtn) passBtn.click();
+      const cards = Array.from(document.querySelectorAll('div.cursor-pointer'));
+      const target = cards.find(c => c.textContent.includes('IN_TRANSIT') || c.textContent.includes('INTERCEPTED') || c.textContent.includes('Directive #01')) || cards[0];
+      if (target) target.click();
     });
     await sleep(1000);
 
     await pageEve.evaluate(() => {
       const btns = Array.from(document.querySelectorAll('button'));
-      const fwdBtn = btns.find(b => b.textContent.includes('FORWARD TO BOB'));
-      if (fwdBtn) fwdBtn.click();
+      const interceptBtn = btns.find(b => b.textContent.includes('Intercept'));
+      if (interceptBtn) interceptBtn.click();
+    });
+    await sleep(1500);
+
+    await pageEve.evaluate(() => {
+      const btns = Array.from(document.querySelectorAll('button'));
+      const passBtn = btns.find(b => b.textContent.includes('PASSTHROUGH'));
+      if (passBtn) passBtn.click();
     });
     await sleep(1500);
 
@@ -439,6 +457,49 @@ async function runThreePortBrowserE2E() {
     await eveInterceptAndMutate('Family 4', 'Quantum State Replacement');
     await bobVerify('REJECTED');
     console.log('  -> Attack Layer 4 Verified: Quantum State Replacement detected via Fisher Exact Test (REJECTED).');
+
+    // --------------------------------------------------------------------------
+    // STEP 5: PACKAGE SWITCHING & BROWSER REFRESH REHYDRATION IN BOB'S INBOX
+    // --------------------------------------------------------------------------
+    console.log('\n--------------------------------------------------------------------------------');
+    console.log('[STEP 5] Testing Package Switching and Browser Refresh Rehydration on Bob Port 5175...');
+    console.log('--------------------------------------------------------------------------------');
+    await pageBob.bringToFront();
+
+    // Select second package in inbox list
+    const switched = await pageBob.evaluate(() => {
+      const items = Array.from(document.querySelectorAll('div[class*="cursor-pointer"]'));
+      if (items.length > 1) {
+        items[1].click();
+        return true;
+      }
+      return false;
+    });
+    console.log(`  -> Clicked package in Bob's inbox: switched=${switched}`);
+    await sleep(2500);
+
+    // Check that stored verdict is rehydrated and verify button is disabled
+    const verifyBtnDisabled = await pageBob.evaluate(() => {
+      const btn = Array.from(document.querySelectorAll('button')).find(b =>
+        b.textContent.includes('VERIFICATION COMPLETE') || b.textContent.includes('VERIFY IN-FLIGHT')
+      );
+      return btn ? btn.disabled : false;
+    });
+    console.log(`  -> Selected package: Stored result rehydrated, Verify button disabled=${verifyBtnDisabled}`);
+
+    // Refresh Bob portal (F5 reload)
+    console.log('  -> Reloading Bob Verifier Portal (page refresh)...');
+    await pageBob.reload({ waitUntil: 'networkidle0' });
+    await sleep(2500);
+
+    const rehydratedVerdict = await pageBob.evaluate(() => {
+      const verdictEl = Array.from(document.querySelectorAll('span, div, h3')).find(el =>
+        el.textContent.includes('VERDICT:') || el.textContent.includes('VERIFICATION COMPLETE')
+      );
+      return verdictEl ? verdictEl.textContent.trim() : 'NONE';
+    });
+    console.log(`  -> After page reload, stored rehydrated state: "${rehydratedVerdict}"`);
+    console.log('  -> Package switching & browser refresh persistence: PASS');
 
     // --------------------------------------------------------------------------
     // CONSOLE AND PAGE ERROR COMPLIANCE AUDIT

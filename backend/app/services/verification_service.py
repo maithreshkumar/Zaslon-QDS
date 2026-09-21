@@ -5,6 +5,7 @@ and deterministic cybersecurity rules to yield explainable verification decision
 """
 import os
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 from datetime import datetime
 from typing import Optional, Dict, Any
 import uuid
@@ -37,12 +38,53 @@ class VerificationService:
         db: Session,
         session_id: str,
         verifier_id: str,
-        sample_ratio: float = 0.05
+        sample_ratio: float = 0.05,
+        transmission_id: Optional[str] = None
     ) -> VerificationResultModel:
         session = SessionService.get_session(db, session_id)
-        pkg = db.query(TransmissionPackageModel).filter(
-            TransmissionPackageModel.session_id == session_id
-        ).first()
+
+        # -------------------------------------------------------------------------
+        # Concurrency & Row-Locking on transmission
+        # -------------------------------------------------------------------------
+        pkg = None
+        target_trans_id = transmission_id
+        if target_trans_id:
+            try:
+                pkg = db.query(TransmissionPackageModel).filter(
+                    TransmissionPackageModel.id == target_trans_id
+                ).with_for_update().first()
+            except Exception:
+                pkg = db.query(TransmissionPackageModel).filter(
+                    TransmissionPackageModel.id == target_trans_id
+                ).first()
+        else:
+            try:
+                pkg = db.query(TransmissionPackageModel).filter(
+                    TransmissionPackageModel.session_id == session_id
+                ).with_for_update().first()
+            except Exception:
+                pkg = db.query(TransmissionPackageModel).filter(
+                    TransmissionPackageModel.session_id == session_id
+                ).first()
+            if pkg:
+                target_trans_id = pkg.id
+
+        # -------------------------------------------------------------------------
+        # IDEMPOTENCY CHECK: one transmission_id -> at most one final verification result
+        # -------------------------------------------------------------------------
+        if target_trans_id:
+            existing_result = db.query(VerificationResultModel).filter(
+                VerificationResultModel.transmission_id == target_trans_id
+            ).first()
+            if existing_result:
+                logger.info(
+                    f"IDEMPOTENT_VERIFICATION: Transmission '{target_trans_id}' already has final "
+                    f"verification result '{existing_result.id}' with verdict '{existing_result.security_decision}'. Returning existing result."
+                )
+                if pkg and pkg.status != existing_result.security_decision:
+                    pkg.status = existing_result.security_decision
+                    db.commit()
+                return existing_result
 
         # -------------------------------------------------------------------------
         # Signal 1: Verifier Authorization Barrier (Threat: UNAUTHORIZED_VERIFICATION / SPOOFING)
@@ -62,7 +104,7 @@ class VerificationService:
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.UNAUTHORIZED,
                 category=ThreatCategories.ACCESS_UNAUTHORIZED_VERIFIER_PROBE,
-                reason=reason, actor=verifier_id
+                reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
         if session.status not in ["DECLARATION_READY", "IN_TRANSIT", "INTERCEPTED", "FORWARDED", "RECEIVED", "VERIFYING", "VERIFIED", "REJECTED"]:
@@ -94,7 +136,7 @@ class VerificationService:
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.INTEGRITY_FAILURE,
                 category=ThreatCategories.ARTIFACT_METADATA_TAMPERING,
-                reason=reason, actor=verifier_id
+                reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
         # Cross-layer identity binding check
@@ -114,7 +156,7 @@ class VerificationService:
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.REJECTED,
                 category=ThreatCategories.PROTOCOL_SIGNER_IMPERSONATION,
-                reason=reason, actor=verifier_id
+                reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
         # -------------------------------------------------------------------------
@@ -131,7 +173,7 @@ class VerificationService:
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.REJECTED if replay_cat in (ThreatCategories.PROTOCOL_REPLAY_CONSUMED_TOKEN, ThreatCategories.PROTOCOL_EXPIRED_WINDOW_REPLAY, "REPLAY") else SecurityVerdicts.INTEGRITY_FAILURE,
                 category=replay_cat or ThreatCategories.PROTOCOL_REPLAY_CONSUMED_TOKEN,
-                reason=replay_reason, actor=verifier_id
+                reason=replay_reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
         # Verify declaration commitment integrity in package
@@ -146,7 +188,7 @@ class VerificationService:
                     matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                     decision=SecurityVerdicts.INTEGRITY_FAILURE,
                     category=ThreatCategories.ARTIFACT_METADATA_TAMPERING,
-                    reason=reason, actor=verifier_id
+                    reason=reason, actor=verifier_id, transmission_id=target_trans_id
                 )
 
         # Verify cross-session signature token binding in package (Threat: SESSION_SUBSTITUTION)
@@ -164,7 +206,7 @@ class VerificationService:
                     matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                     decision=SecurityVerdicts.REJECTED,
                     category=ThreatCategories.SYSTEM_CROSS_SESSION_SUBSTITUTION,
-                    reason=reason, actor=verifier_id
+                    reason=reason, actor=verifier_id, transmission_id=target_trans_id
                 )
 
         # -------------------------------------------------------------------------
@@ -181,7 +223,7 @@ class VerificationService:
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.INTEGRITY_FAILURE,
                 category=ThreatCategories.ARTIFACT_PAYLOAD_SUBSTITUTION,
-                reason=reason, actor=verifier_id
+                reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
         # Signal 4A: QDS Package Manifest Digest Tampering (Threat: QDS_PACKAGE_TAMPERING)
@@ -198,7 +240,7 @@ class VerificationService:
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.INTEGRITY_FAILURE,
                 category=ThreatCategories.QDS_PACKAGE_TAMPERING,
-                reason=reason, actor=verifier_id
+                reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
         # Signal 4B: Re-computed Document File Integrity (Threat: FILE_INTEGRITY_TAMPERING)
@@ -221,7 +263,7 @@ class VerificationService:
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.INTEGRITY_FAILURE,
                 category=ThreatCategories.FILE_INTEGRITY_TAMPERING,
-                reason=reason, actor=verifier_id
+                reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
         # -------------------------------------------------------------------------
@@ -240,7 +282,7 @@ class VerificationService:
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.REJECTED,
                 category=ThreatCategories.QUANTUM_ENTANGLEMENT_INTERCEPTION_DOS,
-                reason=reason, actor=verifier_id
+                reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
         matches = sum(1 for m in measurements if m.is_match)
@@ -315,6 +357,7 @@ class VerificationService:
         result = VerificationResultModel(
             id=str(uuid.uuid4()),
             session_id=session_id,
+            transmission_id=target_trans_id,
             sample_id=sample.id,
             sample_size=sample_size,
             match_count=matches,
@@ -337,8 +380,18 @@ class VerificationService:
             verified_at=utc_now()
         )
         db.add(result)
-        db.commit()
-        db.refresh(result)
+        try:
+            db.commit()
+            db.refresh(result)
+        except IntegrityError:
+            db.rollback()
+            if target_trans_id:
+                existing = db.query(VerificationResultModel).filter(
+                    VerificationResultModel.transmission_id == target_trans_id
+                ).first()
+                if existing:
+                    return existing
+            raise
 
         # If an attack was detected during sampling (e.g. Forgery), ensure an AttackEvent is recorded
         if attack_detected and attack_cat:
@@ -395,7 +448,8 @@ class VerificationService:
         decision: str,
         category: str,
         reason: str,
-        actor: str
+        actor: str,
+        transmission_id: Optional[str] = None
     ) -> VerificationResultModel:
         SessionService.update_status(db, session_id, "REJECTED", actor=actor)
         hash_record = db.query(HashRecordModel).filter(HashRecordModel.session_id == session_id).first()
@@ -435,6 +489,7 @@ class VerificationService:
         res = VerificationResultModel(
             id=str(uuid.uuid4()),
             session_id=session_id,
+            transmission_id=transmission_id,
             sample_id=sample_id,
             sample_size=sample_size,
             match_count=matches,
@@ -457,8 +512,18 @@ class VerificationService:
             verified_at=utc_now()
         )
         db.add(res)
-        db.commit()
-        db.refresh(res)
+        try:
+            db.commit()
+            db.refresh(res)
+        except IntegrityError:
+            db.rollback()
+            if transmission_id:
+                existing = db.query(VerificationResultModel).filter(
+                    VerificationResultModel.transmission_id == transmission_id
+                ).first()
+                if existing:
+                    return existing
+            raise
 
         # Record genuine attack event if not already present
         if category:

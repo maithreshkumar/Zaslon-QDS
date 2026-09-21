@@ -46,6 +46,13 @@ def get_channel_telemetry(
         raise HTTPException(status_code=404, detail=str(e))
 
 
+def _handle_transmission_error(e: ValueError):
+    msg = str(e)
+    if "not found" in msg.lower():
+        raise HTTPException(status_code=404, detail=msg)
+    raise HTTPException(status_code=409, detail=msg)
+
+
 @router.post("/intercept/{transmission_id}", response_model=TransmissionPackageResponse)
 def intercept_transmission(
     transmission_id: str,
@@ -56,7 +63,7 @@ def intercept_transmission(
     try:
         return TransmissionService.intercept_transmission(db, transmission_id, actor=user.username)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _handle_transmission_error(e)
 
 
 @router.post("/mutate/{transmission_id}", response_model=TransmissionPackageResponse)
@@ -83,7 +90,7 @@ def mutate_transmission(
             actor=user.username
         )
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        _handle_transmission_error(e)
 
 
 @router.post("/passthrough/{transmission_id}", response_model=TransmissionPackageResponse)
@@ -96,7 +103,7 @@ def passthrough_transmission(
     try:
         return TransmissionService.passthrough_transmission(db, transmission_id, actor=user.username)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _handle_transmission_error(e)
 
 
 @router.post("/forward/{transmission_id}", response_model=TransmissionPackageResponse)
@@ -109,7 +116,7 @@ def forward_transmission(
     try:
         return TransmissionService.forward_transmission(db, transmission_id, actor=user.username)
     except ValueError as e:
-        raise HTTPException(status_code=404, detail=str(e))
+        _handle_transmission_error(e)
 
 
 @router.post("/probe-verify/{transmission_id}")

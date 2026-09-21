@@ -193,16 +193,51 @@ def sign_session(
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
 
-    if session.created_by != user.username and user.role != "ADMIN":
-        raise HTTPException(status_code=403, detail="Forbidden: You did not create this session")
+    # Check if session is already signed (idempotent signature)
+    declaration = db.query(PublicDeclarationModel).filter(PublicDeclarationModel.session_id == session_id).first()
+    run = db.query(QuantumRunModel).filter(QuantumRunModel.session_id == session_id).order_by(QuantumRunModel.created_at.desc()).first()
+    hash_record = db.query(HashRecordModel).filter(HashRecordModel.session_id == session_id).first()
+
+    if declaration and run:
+        filename = hash_record.file_name if hash_record else "document.txt"
+        file_size = hash_record.file_size_bytes if hash_record else (hash_record.message_bytes_len if hash_record else 0)
+        mime = hash_record.file_mime_type if hash_record else "text/plain"
+
+        qds_manifest = FileService.build_qds_json_manifest(
+            package_tracking_no=f"QDS-PKG-{session.id[:8].upper()}",
+            session_id=session.id,
+            filename=filename,
+            file_size_bytes=file_size,
+            mime_type=mime,
+            sha512_digest=hash_record.sha512_digest if hash_record else "",
+            signer_id=declaration.signer_id,
+            verifier_id=session.verifier_id,
+            declaration_id=declaration.id,
+            signature_token=declaration.signature_token,
+            declaration_payload_hash=declaration.declaration_payload_hash,
+            quantum_run_id=run.id,
+            teleportation_count=run.teleportation_count,
+            declared_at=declaration.declared_at
+        )
+
+        return AliceSignResponse(
+            session_id=session.id,
+            sha512_digest=hash_record.sha512_digest if hash_record else "",
+            total_operations=run.teleportation_count,
+            completed_operations=run.completed_operations,
+            duration_ms=run.execution_duration_ms or 0.0,
+            signature_token=declaration.signature_token,
+            status=session.status,
+            file_name=filename,
+            file_size_bytes=file_size,
+            qds_manifest_json=qds_manifest
+        )
 
     # 1. Execute 4,096 Teleportation circuits on NVIDIA CUDA-Q
     run = TeleportationService.launch_teleportation(db, session_id, actor=user.username, background=False)
 
     # 2. Issue public declaration commitment token
     declaration = DeclarationService.create_declaration(db, session_id, signer_id=user.username)
-
-    hash_record = db.query(HashRecordModel).filter(HashRecordModel.session_id == session_id).first()
 
     # Pre-build .qds.json package
     filename = hash_record.file_name if hash_record else "document.txt"

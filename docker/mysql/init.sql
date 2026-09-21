@@ -134,6 +134,7 @@ CREATE TABLE IF NOT EXISTS verification_samples (
 CREATE TABLE IF NOT EXISTS verification_results (
     id VARCHAR(36) PRIMARY KEY,
     session_id VARCHAR(36) NOT NULL,
+    transmission_id VARCHAR(36) NULL UNIQUE,
     sample_id VARCHAR(36) NULL,
     sample_size INT NOT NULL DEFAULT 0,
     match_count INT NOT NULL DEFAULT 0,

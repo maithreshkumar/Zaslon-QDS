@@ -61,8 +61,10 @@ class TransmissionService:
         existing_pkg = db.query(TransmissionPackageModel).filter(
             TransmissionPackageModel.session_id == session_id
         ).first()
+        if existing_pkg:
+            return existing_pkg
 
-        tracking_no = existing_pkg.package_tracking_no if existing_pkg else cls.generate_tracking_number()
+        tracking_no = cls.generate_tracking_number()
 
         # Build portable .qds.json signature package
         qds_manifest = FileService.build_qds_json_manifest(
@@ -82,45 +84,29 @@ class TransmissionService:
             declared_at=declaration.declared_at
         )
 
-        if existing_pkg:
-            existing_pkg.status = "IN_TRANSIT"
-            existing_pkg.is_tampered = False
-            existing_pkg.intercepted_by = None
-            existing_pkg.intercepted_at = None
-            existing_pkg.file_name = filename
-            existing_pkg.file_mime_type = mime_type
-            existing_pkg.file_size_bytes = file_size
-            existing_pkg.storage_path = hash_record.storage_path
-            existing_pkg.qds_manifest_json = qds_manifest
-            existing_pkg.classical_channel_status = "NORMAL"
-            existing_pkg.quantum_channel_status = "COHERENT"
-            existing_pkg.tampered_channel = None
-            existing_pkg.active_attack_vector = None
-            pkg = existing_pkg
-        else:
-            pkg = TransmissionPackageModel(
-                package_tracking_no=tracking_no,
-                session_id=session_id,
-                sender_id=sender_id,
-                recipient_id=recipient_id,
-                status="IN_TRANSIT",
-                message_payload=hash_record.raw_message,
-                committed_digest=hash_record.sha512_digest,
-                declaration_id=declaration.id,
-                signature_token=declaration.signature_token,
-                declaration_payload_hash=declaration.declaration_payload_hash,
-                quantum_run_id=quantum_run.id if quantum_run else None,
-                file_name=filename,
-                file_mime_type=mime_type,
-                file_size_bytes=file_size,
-                storage_path=hash_record.storage_path,
-                qds_manifest_json=qds_manifest,
-                classical_channel_status="NORMAL",
-                quantum_channel_status="COHERENT",
-                tampered_channel=None,
-                active_attack_vector=None
-            )
-            db.add(pkg)
+        pkg = TransmissionPackageModel(
+            package_tracking_no=tracking_no,
+            session_id=session_id,
+            sender_id=sender_id,
+            recipient_id=recipient_id,
+            status="IN_TRANSIT",
+            message_payload=hash_record.raw_message,
+            committed_digest=hash_record.sha512_digest,
+            declaration_id=declaration.id,
+            signature_token=declaration.signature_token,
+            declaration_payload_hash=declaration.declaration_payload_hash,
+            quantum_run_id=quantum_run.id if quantum_run else None,
+            file_name=filename,
+            file_mime_type=mime_type,
+            file_size_bytes=file_size,
+            storage_path=hash_record.storage_path,
+            qds_manifest_json=qds_manifest,
+            classical_channel_status="NORMAL",
+            quantum_channel_status="COHERENT",
+            tampered_channel=None,
+            active_attack_vector=None
+        )
+        db.add(pkg)
 
         session.status = "IN_TRANSIT"
 
@@ -144,9 +130,12 @@ class TransmissionService:
 
     @classmethod
     def get_interceptable_transmissions(cls, db: Session) -> List[TransmissionPackageModel]:
-        """Eve views transmissions currently in transit or intercepted."""
+        """Eve views transmissions currently in transit, intercepted, or completed."""
         return db.query(TransmissionPackageModel).filter(
-            TransmissionPackageModel.status.in_(["IN_TRANSIT", "INTERCEPTED", "MODIFIED", "PASSTHROUGH"])
+            TransmissionPackageModel.status.in_([
+                "IN_TRANSIT", "INTERCEPTED", "MODIFIED", "PASSTHROUGH",
+                "RECEIVED", "FORWARDED", "VERIFIED", "REJECTED"
+            ])
         ).order_by(TransmissionPackageModel.created_at.desc()).all()
 
     @classmethod
@@ -157,9 +146,23 @@ class TransmissionService:
         actor: str = "Eve_Attacker"
     ) -> TransmissionPackageModel:
         """Eve intercepts an in-flight transmission."""
-        pkg = db.query(TransmissionPackageModel).filter(TransmissionPackageModel.id == transmission_id).first()
+        try:
+            pkg = db.query(TransmissionPackageModel).filter(
+                TransmissionPackageModel.id == transmission_id
+            ).with_for_update().first()
+        except Exception:
+            pkg = db.query(TransmissionPackageModel).filter(
+                TransmissionPackageModel.id == transmission_id
+            ).first()
+
         if not pkg:
             raise ValueError(f"Transmission package '{transmission_id}' not found")
+
+        if pkg.status != "IN_TRANSIT":
+            raise ValueError(
+                f"Invalid state transition: Cannot intercept package in status '{pkg.status}'. "
+                f"Package must be 'IN_TRANSIT' and not already intercepted."
+            )
 
         pkg.status = "INTERCEPTED"
         pkg.intercepted_by = actor
@@ -194,6 +197,36 @@ class TransmissionService:
         actor: str = "Eve_Attacker"
     ) -> TransmissionPackageModel:
         """Eve injects a controlled cyber/quantum attack mutation into the intercepted package."""
+        try:
+            pkg = db.query(TransmissionPackageModel).filter(
+                TransmissionPackageModel.id == transmission_id
+            ).with_for_update().first()
+        except Exception:
+            pkg = db.query(TransmissionPackageModel).filter(
+                TransmissionPackageModel.id == transmission_id
+            ).first()
+
+        if not pkg:
+            raise ValueError(f"Transmission package '{transmission_id}' not found")
+
+        if pkg.status in ["MODIFIED", "ATTACKED"] or pkg.is_tampered:
+            raise ValueError(
+                f"An attack has already been executed on this transmission package (#{pkg.package_tracking_no}). "
+                f"Only one attack is permitted per transmission."
+            )
+
+        if pkg.status in ["RECEIVED", "FORWARDED", "VERIFIED", "REJECTED"]:
+            raise ValueError(
+                f"Transmission package has already been forwarded to Bob (status: '{pkg.status}'). "
+                f"Mutations cannot be applied to forwarded or delivered transmissions."
+            )
+
+        if pkg.status != "INTERCEPTED":
+            raise ValueError(
+                f"Cannot mutate package in status '{pkg.status}'. "
+                f"Package must be intercepted from transit first."
+            )
+
         AttackSimulationService.execute_mutation(
             db=db,
             transmission_id=transmission_id,
@@ -202,6 +235,12 @@ class TransmissionService:
             actor=actor
         )
         pkg = db.query(TransmissionPackageModel).filter(TransmissionPackageModel.id == transmission_id).first()
+        pkg.status = "MODIFIED"
+        pkg.is_tampered = True
+        pkg.attack_type = attack_type
+        pkg.active_attack_vector = attack_type
+        db.commit()
+        db.refresh(pkg)
         return pkg
 
     @classmethod
@@ -211,12 +250,36 @@ class TransmissionService:
         transmission_id: str,
         actor: str = "Eve_Attacker"
     ) -> TransmissionPackageModel:
-        """Eve elects not to tamper with the transmission, forwarding it untouched."""
-        pkg = db.query(TransmissionPackageModel).filter(TransmissionPackageModel.id == transmission_id).first()
+        """Eve elects not to tamper with the transmission, forwarding it untouched directly to Bob."""
+        try:
+            pkg = db.query(TransmissionPackageModel).filter(
+                TransmissionPackageModel.id == transmission_id
+            ).with_for_update().first()
+        except Exception:
+            pkg = db.query(TransmissionPackageModel).filter(
+                TransmissionPackageModel.id == transmission_id
+            ).first()
+
         if not pkg:
             raise ValueError(f"Transmission package '{transmission_id}' not found")
 
-        pkg.status = "PASSTHROUGH"
+        if pkg.status in ["MODIFIED", "ATTACKED"] or pkg.is_tampered:
+            raise ValueError(
+                f"Cannot passthrough an already attacked transmission (#{pkg.package_tracking_no})."
+            )
+
+        if pkg.status in ["RECEIVED", "FORWARDED", "VERIFIED", "REJECTED"]:
+            raise ValueError(
+                f"Transmission package has already been forwarded (status: '{pkg.status}')."
+            )
+
+        if pkg.status != "INTERCEPTED":
+            raise ValueError(
+                f"Cannot passthrough package in status '{pkg.status}'. Package must be intercepted first."
+            )
+
+        # Terminal passthrough: package arrives in Bob's inbox untouched
+        pkg.status = "RECEIVED"
         pkg.is_tampered = False
         pkg.attack_type = None
         pkg.active_attack_vector = None
@@ -224,6 +287,12 @@ class TransmissionService:
         pkg.classical_channel_status = "NORMAL"
         pkg.quantum_channel_status = "COHERENT"
         pkg.tampered_channel = None
+        pkg.forwarded_at = utc_now()
+        pkg.delivered_at = utc_now()
+
+        session = db.query(SessionModel).filter(SessionModel.id == pkg.session_id).first()
+        if session:
+            session.status = "FORWARDED"
 
         audit = AuditEventModel(
             session_id=pkg.session_id,
@@ -316,9 +385,29 @@ class TransmissionService:
         actor: str = "Eve_Attacker"
     ) -> TransmissionPackageModel:
         """Eve dispatches the package onwards to Bob's inbox."""
-        pkg = db.query(TransmissionPackageModel).filter(TransmissionPackageModel.id == transmission_id).first()
+        try:
+            pkg = db.query(TransmissionPackageModel).filter(
+                TransmissionPackageModel.id == transmission_id
+            ).with_for_update().first()
+        except Exception:
+            pkg = db.query(TransmissionPackageModel).filter(
+                TransmissionPackageModel.id == transmission_id
+            ).first()
+
         if not pkg:
             raise ValueError(f"Transmission package '{transmission_id}' not found")
+
+        if pkg.status in ["RECEIVED", "FORWARDED", "VERIFIED", "REJECTED"]:
+            raise ValueError(
+                f"Transmission package has already been forwarded to Bob (status: '{pkg.status}'). "
+                f"Cannot forward multiple times."
+            )
+
+        if pkg.status not in ["MODIFIED", "INTERCEPTED"]:
+            raise ValueError(
+                f"Cannot forward package in status '{pkg.status}'. "
+                f"Package must be intercepted or modified before forwarding."
+            )
 
         pkg.status = "RECEIVED"  # Arrives in Bob's inbox
         pkg.forwarded_at = utc_now()
@@ -355,4 +444,7 @@ class TransmissionService:
         )
         if recipient_id:
             query = query.filter(TransmissionPackageModel.recipient_id == recipient_id)
-        return query.order_by(TransmissionPackageModel.delivered_at.desc()).all()
+        return query.order_by(
+            TransmissionPackageModel.delivered_at.desc(),
+            TransmissionPackageModel.created_at.desc()
+        ).all()

@@ -202,6 +202,17 @@ export const EveLabPage: React.FC = () => {
   const [actionError, setActionError] = useState<string | null>(null);
   const [probeResult, setProbeResult] = useState<any | null>(null);
 
+  // One-time action state derivations
+  const isIntercepted = selectedPackage?.status === 'INTERCEPTED';
+  const isModified = selectedPackage?.status === 'MODIFIED' || Boolean(selectedPackage?.is_tampered);
+  const isForwarded = Boolean(
+    selectedPackage && ['RECEIVED', 'FORWARDED', 'VERIFIED', 'REJECTED'].includes(selectedPackage.status)
+  );
+
+  const canMutate = Boolean(isIntercepted && !isModified && !isForwarded);
+  const canPassthrough = Boolean(isIntercepted && !isModified && !isForwarded);
+  const canForward = Boolean((isModified || isIntercepted) && !isForwarded);
+
   // Fetch interceptable transmissions
   const fetchPackages = async () => {
     try {
@@ -778,8 +789,14 @@ export const EveLabPage: React.FC = () => {
                       return (
                         <div
                           key={atk.id}
-                          onClick={() => setSelectedAttackId(atk.id)}
-                          className={`p-3 rounded-lg border cursor-pointer transition ${
+                          onClick={() => {
+                            if (canMutate) {
+                              setSelectedAttackId(atk.id);
+                            }
+                          }}
+                          className={`p-3 rounded-lg border transition ${
+                            !canMutate ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'
+                          } ${
                             isSelected
                               ? 'bg-red-950/40 border-red-500 text-white shadow-md'
                               : 'bg-slate-950 border-slate-800 hover:border-slate-700 text-slate-300'
@@ -882,23 +899,62 @@ export const EveLabPage: React.FC = () => {
                     </div>
                   )}
 
+                  {/* Status Feedback Banners */}
+                  {selectedPackage.status === 'IN_TRANSIT' && (
+                    <div className="p-3 rounded-lg bg-amber-950/40 border border-amber-500/40 text-amber-200 text-xs font-mono flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Lock className="w-4 h-4 text-amber-400" />
+                        <span>TRANSMISSION IN TRANSIT: Intercept transmission to pause transit and enable attack controls.</span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => handleIntercept(selectedPackage.id)}
+                        disabled={isExecuting}
+                        className="px-3 py-1 rounded bg-red-600 hover:bg-red-500 text-white text-xs font-bold transition flex items-center gap-1"
+                      >
+                        <Lock className="w-3 h-3" />
+                        <span>Intercept</span>
+                      </button>
+                    </div>
+                  )}
+
+                  {isModified && !isForwarded && (
+                    <div className="p-3 rounded-lg bg-purple-950/50 border border-purple-500/50 text-purple-200 text-xs font-mono flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Zap className="w-4 h-4 text-purple-400 animate-pulse" />
+                        <span>ATTACK EXECUTED: <strong className="text-white">[{selectedPackage.attack_type || selectedAttackId}]</strong> — 1-attack limit enforced. Ready to forward to Bob.</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-purple-900/60 text-purple-300 border border-purple-600 font-bold uppercase">Ready to Forward</span>
+                    </div>
+                  )}
+
+                  {isForwarded && (
+                    <div className="p-3 rounded-lg bg-slate-950 border border-cyan-500/40 text-cyan-200 text-xs font-mono flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <Send className="w-4 h-4 text-cyan-400" />
+                        <span>STATUS: FORWARDED TO BOB'S INBOX — Channel transmission complete (Read-Only).</span>
+                      </div>
+                      <span className="text-[10px] px-2 py-0.5 rounded bg-cyan-950 text-cyan-300 border border-cyan-700 font-bold uppercase">{selectedPackage.status}</span>
+                    </div>
+                  )}
+
                   {/* Actions Bar */}
                   <div className="flex flex-wrap gap-3 pt-2">
                     <button
                       type="button"
                       onClick={handleMutate}
-                      disabled={isExecuting || selectedPackage.status === 'IN_TRANSIT'}
-                      className="flex-1 py-2.5 px-4 rounded-lg bg-red-600 hover:bg-red-500 text-white font-mono text-xs font-bold transition flex items-center justify-center gap-2 disabled:opacity-40"
+                      disabled={isExecuting || !canMutate}
+                      className="flex-1 py-2.5 px-4 rounded-lg bg-red-600 hover:bg-red-500 text-white font-mono text-xs font-bold transition flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Zap className="w-4 h-4" />
-                      <span>INJECT ATTACK MUTATION</span>
+                      <span>INJECT ATTACK MUTATION (ONE-TIME)</span>
                     </button>
 
                     <button
                       type="button"
                       onClick={handlePassthrough}
-                      disabled={isExecuting || selectedPackage.status === 'IN_TRANSIT'}
-                      className="py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold transition flex items-center justify-center gap-2 disabled:opacity-40"
+                      disabled={isExecuting || !canPassthrough}
+                      className="py-2.5 px-4 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-mono text-xs font-bold transition flex items-center justify-center gap-2 disabled:opacity-30 disabled:cursor-not-allowed"
                     >
                       <Check className="w-4 h-4" />
                       <span>PASSTHROUGH (UNTOUCHED)</span>
@@ -907,8 +963,12 @@ export const EveLabPage: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleForward}
-                      disabled={isExecuting || selectedPackage.status === 'IN_TRANSIT'}
-                      className="py-2.5 px-4 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white font-mono text-xs font-bold transition flex items-center justify-center gap-2 disabled:opacity-40"
+                      disabled={isExecuting || !canForward}
+                      className={`py-2.5 px-4 rounded-lg text-white font-mono text-xs font-bold transition flex items-center justify-center gap-2 ${
+                        canForward && isModified
+                          ? 'bg-gradient-to-r from-purple-600 to-cyan-600 hover:from-purple-500 hover:to-cyan-500 shadow-lg animate-pulse'
+                          : 'bg-cyan-600 hover:bg-cyan-500'
+                      } disabled:opacity-30 disabled:cursor-not-allowed disabled:animate-none`}
                     >
                       <Send className="w-4 h-4" />
                       <span>FORWARD TO BOB'S INBOX</span>
