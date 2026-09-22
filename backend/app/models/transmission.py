@@ -2,7 +2,7 @@
 Transmission Package Entity Model.
 Represents an in-flight QDS package transitioning from Alice -> Transmission Channel -> Eve -> Bob.
 """
-from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey, Boolean, Text, JSON
+from sqlalchemy import Column, String, Integer, BigInteger, DateTime, Enum, ForeignKey, Boolean, Text, JSON
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -61,7 +61,7 @@ class TransmissionPackageModel(Base):
     # File-based signing and dual-channel additions
     file_name = Column(String(255), nullable=True)
     file_mime_type = Column(String(128), nullable=True)
-    file_size_bytes = Column(Integer, nullable=True)
+    file_size_bytes = Column(BigInteger, nullable=True)
     storage_path = Column(String(512), nullable=True)
     qds_manifest_json = Column(JSON, nullable=True)
     classical_channel_status = Column(String(64), default="NORMAL", nullable=False)

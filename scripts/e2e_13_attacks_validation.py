@@ -243,11 +243,11 @@ def run_13_attacks_suite():
     passed2 = (
         code_eve == 403 and
         code_bob == 200 and
-        v2["security_decision"] == "UNAUTHORIZED" and
-        v2["attack_detected"] is True
+        v2["security_decision"] == "VERIFIED" and
+        v2["attack_detected"] is False
     )
-    print(f"  Eve Probe Status: HTTP {code_eve} Forbidden (RBAC Protected)")
-    print(f"  Bob Decision:     {v2.get('security_decision')} ({v2.get('attack_category')})")
+    print(f"  Eve Probe Status: HTTP {code_eve} Forbidden (RBAC Protected, Alert Logged)")
+    print(f"  Bob Decision:     {v2.get('security_decision')} (Legitimate Package Intact)")
     print(f"  Reason:           {v2.get('decision_reason')[:70]}...")
     print(f"  >>> RESULT:       {'PASS' if passed2 else 'FAIL'}")
     test_results.append(("Attack 2: UNAUTHORIZED_VERIFICATION", passed2, v2.get("security_decision")))

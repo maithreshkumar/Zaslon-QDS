@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     MISMATCH_THRESHOLD_RATIO: float = Field(default=0.03, ge=0.0, le=1.0, description="Maximum tolerable mismatch ratio (3%)")
     REPLAY_WINDOW_SECONDS: int = Field(default=300, gt=0, description="Max tolerable drift for signature timestamp")
 
+    # Streaming & Large File Storage (2 GiB support)
+    MAX_UPLOAD_SIZE_BYTES: int = Field(default=2147483648, ge=1, description="Max allowable file upload size (2 GiB)")
+    STREAM_CHUNK_SIZE_BYTES: int = Field(default=1048576, ge=65536, le=33554432, description="Streaming chunk size (1 MiB default)")
+
     # Network Bindings
     API_HOST: str = Field(default="0.0.0.0")
     API_PORT: int = Field(default=8000)

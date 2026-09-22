@@ -257,6 +257,7 @@ export const EveLabPage: React.FC = () => {
 
   useEffect(() => {
     if (selectedPackage) {
+      setTelemetry(null);
       fetchTelemetry(selectedPackage.id);
     } else {
       setTelemetry(null);
@@ -657,14 +658,25 @@ export const EveLabPage: React.FC = () => {
                           </span>
                         </div>
                         <div className="flex justify-between">
-                          <span className="text-slate-500">SHA-512 Digest:</span>
+                          <span className="text-slate-500">Committed SHA-512:</span>
                           <span
-                            className="text-cyan-400 truncate max-w-[150px]"
+                            className="text-cyan-400 font-mono text-[10px] truncate max-w-[150px]"
                             title={telemetry?.classical_channel?.committed_digest || selectedPackage.committed_digest}
                           >
                             {telemetry?.classical_channel?.committed_digest || selectedPackage.committed_digest}
                           </span>
                         </div>
+                        {telemetry?.classical_channel?.current_file_digest && (
+                          <div className="flex justify-between items-center bg-red-950/40 p-1.5 rounded border border-red-500/30">
+                            <span className="text-red-400 font-semibold text-[10px]">Current File SHA-512:</span>
+                            <span
+                              className="text-red-300 font-mono text-[10px] truncate max-w-[140px]"
+                              title={telemetry.classical_channel.current_file_digest}
+                            >
+                              {telemetry.classical_channel.current_file_digest.slice(0, 16)}... (TAMPERED)
+                            </span>
+                          </div>
+                        )}
                         <div className="flex justify-between">
                           <span className="text-slate-500">Signature Token:</span>
                           <span className="text-emerald-400 truncate max-w-[150px]">

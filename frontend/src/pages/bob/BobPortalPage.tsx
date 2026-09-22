@@ -178,6 +178,7 @@ export const BobPortalPage: React.FC = () => {
     }
 
     const loadPackageVerification = async () => {
+      fetchSecurityEvents();
       try {
         const res = await fetch(`/api/v1/bob/inbox/${selectedPackage.id}/verification`, {
           headers: { Authorization: `Bearer ${token}` }
@@ -592,6 +593,60 @@ export const BobPortalPage: React.FC = () => {
                       </span>
                     </div>
                   </div>
+
+                  {/* Security Intrusion & Unauthorized Access Alerts for Selected Package */}
+                  {(() => {
+                    const pkgAlerts = securityEvents.filter(
+                      (e) => e.session_id === selectedPackage.session_id ||
+                             e.details?.package_tracking_no === selectedPackage.package_tracking_no ||
+                             e.resource?.includes(selectedPackage.id)
+                    );
+                    if (pkgAlerts.length === 0) return null;
+                    return (
+                      <div className="space-y-3">
+                        {pkgAlerts.map((evt) => (
+                          <div
+                            key={evt.id}
+                            className="p-4 rounded-xl bg-amber-950/40 border border-amber-500/50 space-y-2 font-mono shadow-md"
+                          >
+                            <div className="flex items-center justify-between border-b border-amber-500/30 pb-2">
+                              <div className="flex items-center space-x-2 text-amber-400 font-bold text-xs">
+                                <ShieldAlert className="w-4 h-4" />
+                                <span>SECURITY EVENT: {evt.event_type}</span>
+                              </div>
+                              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-amber-900/80 border border-amber-500/60 text-amber-200 uppercase">
+                                Outcome: {evt.details?.outcome || 'BLOCKED (HTTP 403)'}
+                              </span>
+                            </div>
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                              <div>
+                                <span className="text-slate-500">Actor: </span>
+                                <span className="text-red-300 font-bold">{evt.actor}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Target: </span>
+                                <span className="text-slate-200 truncate">{evt.details?.target || evt.resource}</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500">HTTP: </span>
+                                <span className="text-amber-300 font-bold">403 Forbidden</span>
+                              </div>
+                              <div>
+                                <span className="text-slate-500">Timestamp: </span>
+                                <span className="text-slate-400">
+                                  {evt.created_at ? new Date(evt.created_at).toLocaleTimeString() : 'N/A'}
+                                </span>
+                              </div>
+                            </div>
+                            <p className="text-[11px] text-amber-200/90 pt-1">
+                              {evt.details?.message || evt.details?.mechanism ||
+                                'An adversary attempted unauthorized access or verification on this transmission. The attempt was denied by the security barrier. The underlying document and quantum signatures remain intact.'}
+                            </p>
+                          </div>
+                        ))}
+                      </div>
+                    );
+                  })()}
 
                   {/* Verification Execution Controls */}
                   <div className="p-4 rounded-xl bg-slate-950 border border-emerald-500/30 space-y-4">

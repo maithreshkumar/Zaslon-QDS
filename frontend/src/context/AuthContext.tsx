@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { User, UserRole, AuthResponse } from '../types/auth';
+import '../services/authClient';
 
 interface AuthContextType {
   user: User | null;
@@ -18,6 +19,23 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(() => localStorage.getItem('zaslon_token'));
   const [isLoading, setIsLoading] = useState<boolean>(true);
+
+  useEffect(() => {
+    const handleTokenRefreshed = (e: Event) => {
+      const customEvent = e as CustomEvent<{ token: string; user?: User }>;
+      if (customEvent.detail?.token) {
+        setToken(customEvent.detail.token);
+      }
+      if (customEvent.detail?.user) {
+        setUser(customEvent.detail.user);
+      }
+    };
+
+    window.addEventListener('zaslon_token_refreshed', handleTokenRefreshed);
+    return () => {
+      window.removeEventListener('zaslon_token_refreshed', handleTokenRefreshed);
+    };
+  }, []);
 
   useEffect(() => {
     const initAuth = async () => {

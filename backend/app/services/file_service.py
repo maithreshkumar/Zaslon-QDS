@@ -14,11 +14,10 @@ import logging
 
 from ..core.datetime_utils import utc_now
 from ..core.security import compute_sha512
+from ..core.config import settings
 
 logger = logging.getLogger("zaslon.services.file")
 
-CHUNK_SIZE = 65536  # 64 KB chunks for streaming
-MAX_FILE_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB limit
 BASE_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
 
 
@@ -30,6 +29,77 @@ class FileService:
         # Sanitize filename
         safe_filename = os.path.basename(filename).replace(" ", "_")
         return os.path.join(session_dir, safe_filename)
+
+    @classmethod
+    async def stream_and_hash_upload(
+        cls,
+        session_id: str,
+        filename: str,
+        upload_file: Any,
+        mime_type: Optional[str] = None,
+        chunk_size: Optional[int] = None,
+        max_size_bytes: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Streams an uploaded file directly to disk in configurable chunks (default 1 MiB)
+        while computing its SHA-512 digest in a single pass with strictly bounded RAM usage.
+        Enforces MAX_UPLOAD_SIZE_BYTES (2 GiB default).
+        """
+        chunk_size = chunk_size or settings.STREAM_CHUNK_SIZE_BYTES
+        max_size_bytes = max_size_bytes or settings.MAX_UPLOAD_SIZE_BYTES
+
+        storage_path = cls.get_upload_path(session_id, filename)
+        hasher = hashlib.sha512()
+        total_bytes = 0
+
+        try:
+            with open(storage_path, "wb") as out_f:
+                while True:
+                    chunk = await upload_file.read(chunk_size)
+                    if not chunk:
+                        break
+                    total_bytes += len(chunk)
+                    if total_bytes > max_size_bytes:
+                        raise ValueError(
+                            f"File exceeds maximum allowed size of {max_size_bytes / (1024**3):.1f} GiB "
+                            f"(got {total_bytes / (1024**3):.2f} GiB)"
+                        )
+                    hasher.update(chunk)
+                    out_f.write(chunk)
+        except Exception:
+            if os.path.exists(storage_path):
+                try:
+                    os.remove(storage_path)
+                except OSError:
+                    pass
+            raise
+
+        sha512_digest = hasher.hexdigest()
+        logger.info(
+            f"Streamed and saved file {filename} ({total_bytes} bytes) for session {session_id} "
+            f"with SHA-512 {sha512_digest[:16]}... (chunk size: {chunk_size} bytes)"
+        )
+
+        return {
+            "filename": os.path.basename(filename),
+            "mime_type": mime_type or "application/octet-stream",
+            "file_size_bytes": total_bytes,
+            "sha512_digest": sha512_digest,
+            "storage_path": storage_path,
+            "is_binary_file": True
+        }
+
+    @classmethod
+    def compute_file_sha512(cls, file_path: str, chunk_size: Optional[int] = None) -> str:
+        """Computes SHA-512 digest of a file on disk by streaming in bounded chunks."""
+        chunk_size = chunk_size or settings.STREAM_CHUNK_SIZE_BYTES
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found at {file_path}")
+        hasher = hashlib.sha512()
+        with open(file_path, "rb") as f:
+            while chunk := f.read(chunk_size):
+                hasher.update(chunk)
+        return hasher.hexdigest()
 
     @classmethod
     def hash_and_save_stream(
@@ -44,12 +114,14 @@ class FileService:
         Returns file metadata dictionary.
         """
         file_size = len(stream_bytes)
-        if file_size > MAX_FILE_SIZE_BYTES:
-            raise ValueError(f"File exceeds maximum allowed size of 50 MB (got {file_size / (1024*1024):.2f} MB)")
+        max_size = settings.MAX_UPLOAD_SIZE_BYTES
+        if file_size > max_size:
+            raise ValueError(f"File exceeds maximum allowed size of {max_size / (1024**3):.1f} GiB (got {file_size / (1024*1024):.2f} MB)")
 
+        chunk_size = settings.STREAM_CHUNK_SIZE_BYTES
         hasher = hashlib.sha512()
-        for i in range(0, file_size, CHUNK_SIZE):
-            hasher.update(stream_bytes[i:i + CHUNK_SIZE])
+        for i in range(0, file_size, chunk_size):
+            hasher.update(stream_bytes[i:i + chunk_size])
 
         sha512_digest = hasher.hexdigest()
         storage_path = cls.get_upload_path(session_id, filename)

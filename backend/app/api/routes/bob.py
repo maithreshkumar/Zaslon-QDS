@@ -87,8 +87,9 @@ def verify_package(
     # Synchronize transmission status
     if result.security_decision == "VERIFIED":
         pkg.status = "VERIFIED"
-    else:
+    elif result.security_decision in ["REJECTED", "INTEGRITY_FAILURE"]:
         pkg.status = "REJECTED"
+    # If UNAUTHORIZED (access barrier trip), package status remains unchanged
     db.commit()
 
     return result

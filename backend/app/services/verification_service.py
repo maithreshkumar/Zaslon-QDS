@@ -96,15 +96,32 @@ class VerificationService:
                 f"designated verifier '{target_expected}' for session '{session_id}'."
             )
             logger.warning(f"UNAUTHORIZED_VERIFICATION_DETECTED: {reason}")
-            if pkg:
-                pkg.status = "REJECTED"
-                db.commit()
+            # Package state remains completely unchanged and authentic for legitimate verifier Bob!
+            sec_event = SecurityEventModel(
+                session_id=session_id,
+                event_type="UNAUTHORIZED_VERIFICATION",
+                severity="HIGH",
+                actor=verifier_id,
+                resource=f"/inbox/{pkg.id if pkg else session_id}/verify",
+                details={
+                    "outcome": "BLOCKED",
+                    "http_status": 403,
+                    "target": "Bob-private verification endpoint",
+                    "attempted_by": verifier_id,
+                    "designated_verifier": target_expected,
+                    "package_tracking_no": pkg.package_tracking_no if pkg else None,
+                    "reason": reason
+                }
+            )
+            db.add(sec_event)
+            db.commit()
+
             return VerificationService._record_failure(
                 db, session_id=session_id, sample_id=None, sample_size=0,
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.UNAUTHORIZED,
                 category=ThreatCategories.ACCESS_UNAUTHORIZED_VERIFIER_PROBE,
-                reason=reason, actor=verifier_id, transmission_id=target_trans_id
+                reason=reason, actor=verifier_id, transmission_id=None
             )
 
         if session.status not in ["DECLARATION_READY", "IN_TRANSIT", "INTERCEPTED", "FORWARDED", "RECEIVED", "VERIFYING", "VERIFIED", "REJECTED"]:
@@ -245,7 +262,7 @@ class VerificationService:
 
         # Signal 4B: Re-computed Document File Integrity (Threat: FILE_INTEGRITY_TAMPERING)
         if hash_record.storage_path and os.path.exists(hash_record.storage_path):
-            recomputed_digest = compute_sha512(FileService.read_file_bytes(hash_record.storage_path))
+            recomputed_digest = FileService.compute_file_sha512(hash_record.storage_path)
         else:
             recomputed_digest = compute_sha512(hash_record.raw_message.encode("utf-8"))
 

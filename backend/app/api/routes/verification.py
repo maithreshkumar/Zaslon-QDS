@@ -68,6 +68,7 @@ def get_verification_samples(
             is_authorized = True
 
     if not is_authorized:
+        pkg = db.query(TransmissionPackageModel).filter(TransmissionPackageModel.session_id == session_id).first()
         sec_evt = SecurityEventModel(
             session_id=session_id,
             event_type="UNAUTHORIZED_PROBE",
@@ -75,7 +76,11 @@ def get_verification_samples(
             actor=actor_name,
             resource=f"/verification/{session_id}/samples",
             details={
-                "error": "UNAUTHORIZED_PROBE",
+                "outcome": "BLOCKED",
+                "http_status": 403,
+                "target": "Bob-private verification resource (sample indices)",
+                "actor": actor_name,
+                "package_tracking_no": pkg.package_tracking_no if pkg else None,
                 "message": f"Actor '{actor_name}' attempted unauthorized inspection of Bob-private sample indices."
             }
         )

@@ -72,11 +72,10 @@ async def upload_document_or_directive(
     db.commit()
 
     if file:
-        content = await file.read()
-        file_meta = FileService.hash_and_save_stream(
+        file_meta = await FileService.stream_and_hash_upload(
             session_id=session.id,
             filename=file.filename or "document.bin",
-            stream_bytes=content,
+            upload_file=file,
             mime_type=file.content_type
         )
         hash_record = HashRecordModel(

@@ -8,6 +8,8 @@ from sqlalchemy.orm import Session
 from datetime import datetime
 import uuid
 import secrets
+import os
+import hashlib
 
 from ..models.transmission import TransmissionPackageModel
 from ..models.session import SessionModel
@@ -18,6 +20,7 @@ from ..models.quantum_run import QuantumRunModel
 from ..models.audit_event import AuditEventModel
 from ..models.attack_event import AttackEventModel
 from ..core.datetime_utils import utc_now
+from ..core.security import ThreatCategories
 from .file_service import FileService
 from .attack_simulation_service import AttackSimulationService
 
@@ -317,12 +320,36 @@ class TransmissionService:
             raise ValueError(f"Transmission package '{transmission_id}' not found")
 
         # Classical channel stream
+        current_file_digest = None
+        if pkg.is_tampered and pkg.attack_type in (
+            ThreatCategories.FILE_INTEGRITY_TAMPERING,
+            ThreatCategories.ARTIFACT_PAYLOAD_SUBSTITUTION,
+            ThreatCategories.INTEGRITY_TAMPERING,
+            "FILE_INTEGRITY_TAMPERING"
+        ):
+            hash_rec = db.query(HashRecordModel).filter(HashRecordModel.session_id == pkg.session_id).first()
+            if hash_rec and hash_rec.storage_path and os.path.exists(hash_rec.storage_path):
+                h = hashlib.sha512()
+                with open(hash_rec.storage_path, "rb") as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+                current_file_digest = h.hexdigest()
+            elif getattr(pkg, "storage_path", None) and os.path.exists(pkg.storage_path):
+                h = hashlib.sha512()
+                with open(pkg.storage_path, "rb") as f:
+                    while chunk := f.read(65536):
+                        h.update(chunk)
+                current_file_digest = h.hexdigest()
+            elif pkg.message_payload:
+                current_file_digest = hashlib.sha512(pkg.message_payload.encode()).hexdigest()
+
         classical_stream = {
             "channel_status": pkg.classical_channel_status,
             "file_name": pkg.file_name or "directive_payload.txt",
             "file_size_bytes": pkg.file_size_bytes or len(pkg.message_payload.encode()),
             "file_mime_type": pkg.file_mime_type or "text/plain",
             "committed_digest": pkg.committed_digest,
+            "current_file_digest": current_file_digest,
             "signature_token": pkg.signature_token,
             "declaration_payload_hash": pkg.declaration_payload_hash,
             "sender_id": pkg.sender_id,

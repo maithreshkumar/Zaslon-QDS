@@ -72,7 +72,7 @@ def create_access_token(data: Dict[str, Any], expires_delta: Optional[timedelta]
     return f"{header_b64}.{payload_b64}.{signature_b64}"
 
 
-def decode_access_token(token: str) -> Dict[str, Any]:
+def decode_access_token(token: str, verify_exp: bool = True) -> Dict[str, Any]:
     """Decodes and validates a signed HS256 JWT access token."""
     parts = token.split(".")
     if len(parts) != 3:
@@ -91,10 +91,11 @@ def decode_access_token(token: str) -> Dict[str, Any]:
     payload_bytes = _b64_decode(payload_b64)
     payload = json.loads(payload_bytes.decode("utf-8"))
 
-    exp = payload.get("exp")
-    if exp is not None:
-        now_ts = int(utc_now().timestamp())
-        if now_ts > exp:
-            raise ValueError("JWT token has expired")
+    if verify_exp:
+        exp = payload.get("exp")
+        if exp is not None:
+            now_ts = int(utc_now().timestamp())
+            if now_ts > exp:
+                raise ValueError("JWT token has expired")
 
     return payload

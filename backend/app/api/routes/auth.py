@@ -1,13 +1,13 @@
 """
 Authentication & Role Management API Routes.
 """
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 
 from ...db.session import get_db
 from ...models.user import UserModel
-from ...core.auth import hash_password, verify_password, create_access_token
+from ...core.auth import hash_password, verify_password, create_access_token, decode_access_token
 from ...schemas.auth import (
     UserRegisterRequest,
     RoleLockedRegisterRequest,
@@ -273,3 +273,59 @@ def get_portal_session(request: PortalSessionRequest, db: Session = Depends(get_
     })
 
     return TokenResponse(access_token=token, token_type="bearer", user=user)
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_token(
+    authorization: Optional[str] = Header(None),
+    db: Session = Depends(get_db)
+):
+    """
+    Refreshes an expiring or recently expired JWT access token.
+    Cryptographically verifies the token signature and re-issues a new access token
+    with the exact same user identity and role.
+    """
+    token = None
+    if authorization and authorization.lower().startswith("bearer "):
+        token = authorization.split(" ", 1)[1].strip()
+
+    if not token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Authorization Bearer token required for refresh",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    try:
+        # Cryptographically verifies signature, allows expired tokens for refresh
+        payload = decode_access_token(token, verify_exp=False)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=f"Invalid token signature: {str(e)}"
+        )
+
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid token payload: missing sub"
+        )
+
+    user = db.query(UserModel).filter(
+        (UserModel.id == user_id) | (UserModel.username == user_id)
+    ).first()
+    if not user or user.status != "ACTIVE":
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="User account does not exist or is inactive"
+        )
+
+    new_token = create_access_token({
+        "sub": user.id,
+        "username": user.username,
+        "role": user.role,
+        "public_identity": user.public_identity
+    })
+
+    return TokenResponse(access_token=new_token, token_type="bearer", user=user)

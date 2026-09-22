@@ -145,13 +145,23 @@ def probe_unauthorized_verification(
             "barrier": "RBAC_VERIFIER_AUTHORIZATION"
         }
     )
+    db.add(attack_event)
+
     sec_event = SecurityEventModel(
         session_id=pkg.session_id,
         event_type="UNAUTHORIZED_VERIFICATION",
         severity="HIGH",
         actor=user.username,
         resource=f"/inbox/{pkg.id}/verify",
-        details={"attempted_by": user.username, "recipient_id": pkg.recipient_id}
+        details={
+            "outcome": "BLOCKED",
+            "http_status": 403,
+            "target": "Bob-private verification endpoint",
+            "attempted_by": user.username,
+            "designated_verifier": pkg.recipient_id,
+            "package_tracking_no": pkg.package_tracking_no,
+            "file_name": pkg.file_name
+        }
     )
     db.add(sec_event)
 
@@ -159,7 +169,11 @@ def probe_unauthorized_verification(
         session_id=pkg.session_id,
         actor=user.username,
         event_type="UNAUTHORIZED_VERIFICATION_BLOCKED",
-        details={"attempted_by": user.username, "recipient_id": pkg.recipient_id}
+        details={
+            "attempted_by": user.username,
+            "designated_verifier": pkg.recipient_id,
+            "package_tracking_no": pkg.package_tracking_no
+        }
     )
     db.add(audit)
     db.commit()

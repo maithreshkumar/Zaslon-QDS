@@ -349,20 +349,22 @@ class AttackSimulationService:
             pkg.tampered_channel = "CLASSICAL"
 
         elif attack_type_upper in ("UNAUTHORIZED_VERIFICATION", ThreatCategories.PROTOCOL_VERIFIER_SPOOFING):
-            spoofed_verifier = params.get("spoofed_verifier", "Mallory_Rogue_Verifier")
-            pkg.recipient_id = spoofed_verifier
             manipulation_record = {
                 "vector": "UNAUTHORIZED_VERIFICATION",
-                "spoofed_verifier": spoofed_verifier,
-                "mechanism": "Redirected designated recipient away from authentic verifier / non-verifier probe"
+                "outcome": "BLOCKED",
+                "http_status": 403,
+                "actor": actor,
+                "target": "Bob-private verification endpoint",
+                "designated_verifier": pkg.recipient_id,
+                "package_tracking_no": pkg.package_tracking_no,
+                "mechanism": f"Adversary '{actor}' attempted unauthorized verification of package addressed to '{pkg.recipient_id}'"
             }
             evidence_record = {
                 "description": "Designated verifier mismatch; verifier authorization failed",
                 "expected_barrier": "Barrier 1: Verifier Authorization Barrier",
                 "expected_verdict": "UNAUTHORIZED"
             }
-            pkg.classical_channel_status = "TAMPERED"
-            pkg.tampered_channel = "CLASSICAL"
+            # Package state, recipient, and files remain completely authentic and intact!
 
             # Record security intrusion event
             sec_event = SecurityEventModel(
@@ -378,16 +380,20 @@ class AttackSimulationService:
         elif attack_type_upper in ("UNAUTHORIZED_PROBE", ThreatCategories.ACCESS_UNAUTHORIZED_VERIFIER_PROBE):
             manipulation_record = {
                 "vector": "UNAUTHORIZED_PROBE",
+                "outcome": "BLOCKED",
+                "http_status": 403,
                 "actor": actor,
-                "mechanism": "Adversary attempted unauthorized probe of private verification resources"
+                "target": "Bob-private verification resource (sample indices)",
+                "designated_verifier": pkg.recipient_id,
+                "package_tracking_no": pkg.package_tracking_no,
+                "mechanism": f"Adversary '{actor}' attempted unauthorized probe of private verification resources"
             }
             evidence_record = {
                 "description": "Role-based access barrier blocks unprivileged verification resource probe",
                 "expected_barrier": "Barrier 1: RBAC Verifier Authorization Barrier",
                 "expected_verdict": "UNAUTHORIZED"
             }
-            pkg.classical_channel_status = "INTERCEPTED"
-            pkg.tampered_channel = "CLASSICAL"
+            # Package state, recipient, and files remain completely authentic and intact!
 
             # Record security intrusion event
             sec_event = SecurityEventModel(
@@ -403,19 +409,25 @@ class AttackSimulationService:
         else:
             raise ValueError(f"Unknown attack vector '{attack_type}'. Must be one of 13 supported threat types.")
 
-        # Update package state
-        pkg.is_tampered = True
-        pkg.attack_type = attack_type_upper
-        pkg.active_attack_vector = attack_type_upper
-        pkg.tamper_details = manipulation_record
-        pkg.status = "MODIFIED"
+        is_access_control_probe = attack_type_upper in (
+            "UNAUTHORIZED_VERIFICATION", "UNAUTHORIZED_PROBE",
+            ThreatCategories.PROTOCOL_VERIFIER_SPOOFING, ThreatCategories.ACCESS_UNAUTHORIZED_VERIFIER_PROBE
+        )
+
+        if not is_access_control_probe:
+            # Update package state only for actual mutation attacks
+            pkg.is_tampered = True
+            pkg.attack_type = attack_type_upper
+            pkg.active_attack_vector = attack_type_upper
+            pkg.tamper_details = manipulation_record
+            pkg.status = "MODIFIED"
 
         # Create Attack Event record
         attack_event = AttackEventModel(
             session_id=pkg.session_id,
             attack_type=attack_type_upper,
             simulated=True,
-            detected=False,  # Evaluated purely when Bob verifies!
+            detected=is_access_control_probe,  # Access control probes are detected immediately at the barrier
             payload_manipulation=manipulation_record,
             detection_evidence=evidence_record
         )
@@ -425,7 +437,7 @@ class AttackSimulationService:
         audit = AuditEventModel(
             session_id=pkg.session_id,
             actor=actor,
-            event_type=f"EVE_ATTACK_INJECTED_{attack_type_upper}",
+            event_type=f"EVE_ATTACK_INJECTED_{attack_type_upper}" if not is_access_control_probe else f"EVE_SECURITY_EVENT_{attack_type_upper}",
             details={
                 "tracking_no": pkg.package_tracking_no,
                 "attack_vector": attack_type_upper,
