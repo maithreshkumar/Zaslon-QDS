@@ -9,6 +9,7 @@ from ...db.session import get_db
 from ...services.verification_service import VerificationService
 from ...models.verification import VerificationResultModel, VerificationSampleModel
 from ...models.security_event import SecurityEventModel
+from ...models.transmission import TransmissionPackageModel
 from ...models.audit_event import AuditEventModel
 from ...models.user import UserModel
 from ...schemas.verification import (

@@ -18,6 +18,7 @@ from ..models.declaration import PublicDeclarationModel
 from ..models.hash_record import HashRecordModel
 from ..models.attack_event import AttackEventModel
 from ..models.transmission import TransmissionPackageModel
+from ..models.security_event import SecurityEventModel
 from ..core.security import SecurityVerdicts, ThreatCategories, compute_sha512
 from ..core.config import settings
 from ..core.exceptions import VerificationStateError
@@ -28,6 +29,8 @@ from .declaration_service import DeclarationService
 from .authorization_service import AuthorizationService
 from .audit_service import AuditService
 from .file_service import FileService
+from .teleportation_service import TeleportationService
+from ..core.state_prep import derive_teleportation_parameters
 
 logger = logging.getLogger("zaslon.services.verification")
 
@@ -120,7 +123,7 @@ class VerificationService:
                 db, session_id=session_id, sample_id=None, sample_size=0,
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.UNAUTHORIZED,
-                category=ThreatCategories.ACCESS_UNAUTHORIZED_VERIFIER_PROBE,
+                category=ThreatCategories.UNAUTHORIZED_VERIFICATION,
                 reason=reason, actor=verifier_id, transmission_id=None
             )
 
@@ -172,7 +175,7 @@ class VerificationService:
                 db, session_id=session_id, sample_id=None, sample_size=0,
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.REJECTED,
-                category=ThreatCategories.PROTOCOL_SIGNER_IMPERSONATION,
+                category=ThreatCategories.IMPERSONATION,
                 reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
@@ -204,7 +207,7 @@ class VerificationService:
                     db, session_id=session_id, sample_id=None, sample_size=0,
                     matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                     decision=SecurityVerdicts.INTEGRITY_FAILURE,
-                    category=ThreatCategories.ARTIFACT_METADATA_TAMPERING,
+                    category=ThreatCategories.DECLARATION_TAMPERING,
                     reason=reason, actor=verifier_id, transmission_id=target_trans_id
                 )
 
@@ -222,7 +225,7 @@ class VerificationService:
                     db, session_id=session_id, sample_id=None, sample_size=0,
                     matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                     decision=SecurityVerdicts.REJECTED,
-                    category=ThreatCategories.SYSTEM_CROSS_SESSION_SUBSTITUTION,
+                    category=ThreatCategories.SESSION_SUBSTITUTION,
                     reason=reason, actor=verifier_id, transmission_id=target_trans_id
                 )
 
@@ -261,12 +264,30 @@ class VerificationService:
             )
 
         # Signal 4B: Re-computed Document File Integrity (Threat: FILE_INTEGRITY_TAMPERING)
-        if hash_record.storage_path and os.path.exists(hash_record.storage_path):
-            recomputed_digest = FileService.compute_file_sha512(hash_record.storage_path)
-        else:
-            recomputed_digest = compute_sha512(hash_record.raw_message.encode("utf-8"))
+        recomputed_trans_digest = None
+        if pkg:
+            if pkg.storage_path and os.path.exists(pkg.storage_path):
+                recomputed_trans_digest = FileService.compute_file_sha512(pkg.storage_path)
+            elif pkg.message_payload is not None:
+                recomputed_trans_digest = compute_sha512(pkg.message_payload.encode("utf-8"))
 
-        if recomputed_digest != hash_record.sha512_digest:
+        recomputed_rec_digest = None
+        if hash_record.storage_path and os.path.exists(hash_record.storage_path):
+            recomputed_rec_digest = FileService.compute_file_sha512(hash_record.storage_path)
+        elif hash_record.raw_message is not None:
+            recomputed_rec_digest = compute_sha512(hash_record.raw_message.encode("utf-8"))
+
+        recomputed_digest = recomputed_trans_digest or recomputed_rec_digest or ""
+
+        is_tampered = False
+        if recomputed_trans_digest and recomputed_trans_digest != hash_record.sha512_digest:
+            is_tampered = True
+            recomputed_digest = recomputed_trans_digest
+        elif recomputed_rec_digest and recomputed_rec_digest != hash_record.sha512_digest:
+            is_tampered = True
+            recomputed_digest = recomputed_rec_digest
+
+        if is_tampered:
             reason = (
                 f"File integrity tampering detected: Recomputed SHA-512 digest ({recomputed_digest[:16]}...) "
                 f"does not match recorded digest ({hash_record.sha512_digest[:16]}...)."
@@ -286,6 +307,14 @@ class VerificationService:
         # -------------------------------------------------------------------------
         # Signal 5: Deterministic Sampling & Quantum Mismatch (Threat: FORGERY)
         # -------------------------------------------------------------------------
+        # Ensure in-transit measurements are completed and persisted
+        try:
+            TeleportationService.execute_in_transit_measurements(
+                db, transmission_id=target_trans_id, session_id=session_id
+            )
+        except Exception as e:
+            logger.warning(f"In-transit measurement execution note: {e}")
+
         sample = SamplingService.select_sample(db, session_id, sample_ratio=sample_ratio)
         measurements = SamplingService.get_sampled_measurements(db, sample)
 
@@ -295,15 +324,28 @@ class VerificationService:
                 pkg.status = "REJECTED"
                 db.commit()
             return VerificationService._record_failure(
-                db, session_id=session_id, sample_id=sample.id, sample_size=0,
+                db, session_id=session_id, sample_id=sample.id if sample else None, sample_size=0,
                 matches=0, mismatches=0, ratio=0.0, odds_ratio=None, p_val=1.0,
                 decision=SecurityVerdicts.REJECTED,
                 category=ThreatCategories.QUANTUM_ENTANGLEMENT_INTERCEPTION_DOS,
                 reason=reason, actor=verifier_id, transmission_id=target_trans_id
             )
 
-        matches = sum(1 for m in measurements if m.is_match)
-        mismatches = len(measurements) - matches
+        # Independently derive expected state parameters from trusted message digest
+        # Bob never relies on m.expected_bit or m.is_match from database/network ground-truth!
+        trusted_digest = hash_record.sha512_digest if hash_record else (pkg.committed_digest if pkg else "")
+        expected_params = derive_teleportation_parameters(trusted_digest, total_count=4096)
+        expected_map = {p["operation_index"]: p["expected_bit"] for p in expected_params}
+
+        matches = 0
+        mismatches = 0
+        for m in measurements:
+            expected_b = expected_map.get(m.operation_index, 0)
+            if m.bob_observed_bit == expected_b:
+                matches += 1
+            else:
+                mismatches += 1
+
         sample_size, mismatch_ratio = StatisticsService.calculate_mismatch_metrics(matches, mismatches)
 
         fisher_res = StatisticsService.run_fisher_exact_test(matches, mismatches)
@@ -322,7 +364,7 @@ class VerificationService:
 
         if stat_verdict == "SUSPICIOUS" or mismatch_ratio > settings.MISMATCH_THRESHOLD_RATIO:
             attack_detected = True
-            attack_cat = ThreatCategories.QUANTUM_BIT_FLIP_FORGERY
+            attack_cat = ThreatCategories.FORGERY
             security_decision = SecurityVerdicts.REJECTED
             reason = (
                 f"Quantum signature rejected: High mismatch ratio ({mismatch_ratio:.2%}) "
@@ -635,6 +677,18 @@ class VerificationService:
 
         # If purely offline session without existing database record:
         session_id = session_id or str(uuid.uuid4())
+        db_session = db.query(SessionModel).filter(SessionModel.id == session_id).first()
+        if not db_session:
+            db_session = SessionModel(
+                id=session_id,
+                session_name=f"Manual Upload: {filename}"[:128],
+                created_by=signer_id,
+                verifier_id=designated_verifier,
+                status="REJECTED"
+            )
+            db.add(db_session)
+            db.commit()
+
         # Check authorization
         if designated_verifier != verifier_id:
             reason = f"Unauthorized manual verification: actor '{verifier_id}' != designated verifier '{designated_verifier}'."
@@ -657,14 +711,17 @@ class VerificationService:
                 reason=reason, actor=verifier_id
             )
 
-        # Fallback offline verified
-        reason = "Manual upload verified: SHA-512 integrity confirmed and token commitment valid."
+        # Offline upload without real quantum measurement evidence
+        reason = (
+            "Manual upload inconclusive: Document hash and metadata verified, "
+            "but quantum teleportation measurement evidence is missing from offline upload."
+        )
         barriers = [
             {"barrier": "Verifier Authorization Barrier", "status": "PASSED"},
             {"barrier": "Signer Identity Binding Barrier", "status": "PASSED"},
             {"barrier": "Anti-Replay Single-Use Token Barrier", "status": "PASSED"},
             {"barrier": "Cryptographic SHA-512 File Integrity Barrier", "status": "PASSED"},
-            {"barrier": "Quantum Teleportation Fisher Exact Test Barrier", "status": "PASSED"}
+            {"barrier": "Quantum Teleportation Fisher Exact Test Barrier", "status": "EVIDENCE_MISSING"}
         ]
         cert_receipt = FileService.generate_certificate_receipt(
             session_id=session_id,
@@ -672,38 +729,38 @@ class VerificationService:
             sha512_digest=computed_digest,
             signer_id=signer_id,
             verifier_id=verifier_id,
-            decision=SecurityVerdicts.VERIFIED,
-            statistical_verdict="ACCEPTABLE",
-            sample_size=205,
-            match_count=205,
+            decision=SecurityVerdicts.INCONCLUSIVE,
+            statistical_verdict="EVIDENCE_MISSING",
+            sample_size=0,
+            match_count=0,
             mismatch_count=0,
             mismatch_ratio=0.0,
-            fisher_p_value=1.0,
+            fisher_p_value=None,
             fisher_odds_ratio=None,
-            contingency_table=[[205, 0], [203, 2]],
+            contingency_table=None,
             defense_barriers=barriers,
             attack_detected=False,
-            attack_category=None,
+            attack_category="EVIDENCE_MISSING",
             decision_reason=reason
         )
         res = VerificationResultModel(
             id=str(uuid.uuid4()),
             session_id=session_id,
             sample_id=None,
-            sample_size=205,
-            match_count=205,
+            sample_size=0,
+            match_count=0,
             mismatch_count=0,
             mismatch_ratio=0.0,
-            fisher_p_value=1.0,
+            fisher_p_value=None,
             fisher_odds_ratio=None,
-            contingency_table=[[205, 0], [203, 2]],
+            contingency_table=None,
             threshold_ratio=settings.MISMATCH_THRESHOLD_RATIO,
             significance_alpha=settings.FISHER_SIGNIFICANCE_ALPHA,
             baseline_error_rate=settings.BASELINE_ERROR_RATE,
-            statistical_verdict="ACCEPTABLE",
-            security_decision=SecurityVerdicts.VERIFIED,
+            statistical_verdict="EVIDENCE_MISSING",
+            security_decision=SecurityVerdicts.INCONCLUSIVE,
             attack_detected=False,
-            attack_category=None,
+            attack_category="EVIDENCE_MISSING",
             decision_reason=reason,
             certificate_serial=cert_receipt.get("certificate_serial"),
             verification_source="MANUAL_UPLOAD",

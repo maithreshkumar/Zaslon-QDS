@@ -43,11 +43,11 @@ class VerificationResultModel(Base):
     significance_alpha = Column(Float, nullable=False, default=0.01)
     baseline_error_rate = Column(Float, nullable=False, default=0.01)
     statistical_verdict = Column(
-        Enum('ACCEPTABLE', 'SUSPICIOUS', 'REJECTED', name='stat_verdict_enum'),
+        Enum('ACCEPTABLE', 'SUSPICIOUS', 'REJECTED', 'EVIDENCE_MISSING', name='stat_verdict_enum'),
         nullable=False
     )
     security_decision = Column(
-        Enum('VERIFIED', 'REJECTED', 'UNAUTHORIZED', 'INTEGRITY_FAILURE', name='sec_decision_enum'),
+        Enum('VERIFIED', 'REJECTED', 'UNAUTHORIZED', 'INTEGRITY_FAILURE', 'INCONCLUSIVE', name='sec_decision_enum'),
         nullable=False,
         index=True
     )

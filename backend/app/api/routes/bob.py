@@ -21,6 +21,7 @@ from ...services.verification_service import VerificationService
 from ...services.file_service import FileService
 from ...schemas.transmission import (
     TransmissionPackageResponse,
+    BobTransmissionPackageResponse,
     BobVerifyPackageRequest
 )
 from ...schemas.verification import VerificationResultResponse
@@ -29,7 +30,7 @@ from ..deps import require_role
 router = APIRouter(tags=["Bob — Verifier"])
 
 
-@router.get("/inbox", response_model=List[TransmissionPackageResponse])
+@router.get("/inbox", response_model=List[BobTransmissionPackageResponse])
 def list_bob_inbox(
     user: UserModel = Depends(require_role(["BOB", "ADMIN"])),
     db: Session = Depends(get_db)
@@ -38,7 +39,7 @@ def list_bob_inbox(
     return TransmissionService.get_bob_inbox(db, recipient_id=user.username if user.role != "ADMIN" else None)
 
 
-@router.get("/inbox/{transmission_id}", response_model=TransmissionPackageResponse)
+@router.get("/inbox/{transmission_id}", response_model=BobTransmissionPackageResponse)
 def inspect_inbox_package(
     transmission_id: str,
     user: UserModel = Depends(require_role(["BOB", "ADMIN"])),

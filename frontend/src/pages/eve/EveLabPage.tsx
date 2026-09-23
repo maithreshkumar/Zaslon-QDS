@@ -148,8 +148,8 @@ const ATTACK_VECTORS: AttackVectorDef[] = [
     name: '11. Measurement Manipulation',
     family: 'FAMILY_4_QUANTUM',
     targetChannel: 'QUANTUM',
-    description: "Inverts Bob's observed teleportation bits across operations (Q2 -> ~Q2).",
-    scientificMechanism: 'Direct Pauli-X bit flip on Bob measurement states, elevating mismatch ratio far beyond 3.00% threshold.',
+    description: "Applies physical Pauli-X bit-flip optical perturbations during in-transit quantum propagation.",
+    scientificMechanism: 'Coupled SeQUeNCe and CUDA-Q physical bit-flip rotation on the optical fiber channel, elevating mismatch ratio far beyond 3.00% threshold.',
     barrierTriggered: 'Barrier 5: Quantum Teleportation Fisher Exact Test Barrier',
     expectedVerdict: 'REJECTED'
   },
@@ -158,8 +158,8 @@ const ATTACK_VECTORS: AttackVectorDef[] = [
     name: '12. Basis Manipulation',
     family: 'FAMILY_4_QUANTUM',
     targetChannel: 'QUANTUM',
-    description: 'Alters measurement basis flags between Z and X representations in quantum stream.',
-    scientificMechanism: 'Forces Bob to measure in conjugate basis, causing ~50% random outcomes and high sample mismatch.',
+    description: 'Induces polarization rotation (pi/4) between Z and X representations in optical stream.',
+    scientificMechanism: 'Optical fiber birefringence forces Bob into non-orthogonal conjugate basis measurement, causing high sample mismatch.',
     barrierTriggered: 'Barrier 5: Quantum Teleportation Fisher Exact Test Barrier',
     expectedVerdict: 'REJECTED'
   },
@@ -168,8 +168,8 @@ const ATTACK_VECTORS: AttackVectorDef[] = [
     name: '13. Quantum State Replacement',
     family: 'FAMILY_4_QUANTUM',
     targetChannel: 'QUANTUM',
-    description: 'Applies phase perturbation (Pauli-Z) and depolarizing decoherence to quantum channel.',
-    scientificMechanism: 'Inverts feed-forward correction or rotates phase, disrupting deferred measurement Hadamard parity.',
+    description: 'Applies phase drift (Pauli-Z) and depolarizing decoherence to quantum channel.',
+    scientificMechanism: 'Coupled SeQUeNCe decoherence and CUDA-Q phase rotation, disrupting deferred measurement parity.',
     barrierTriggered: 'Barrier 5: Quantum Teleportation Fisher Exact Test Barrier',
     expectedVerdict: 'REJECTED'
   }

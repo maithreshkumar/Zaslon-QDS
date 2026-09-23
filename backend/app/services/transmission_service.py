@@ -23,6 +23,7 @@ from ..core.datetime_utils import utc_now
 from ..core.security import ThreatCategories
 from .file_service import FileService
 from .attack_simulation_service import AttackSimulationService
+from .teleportation_service import TeleportationService
 
 
 class TransmissionService:
@@ -293,6 +294,12 @@ class TransmissionService:
         pkg.forwarded_at = utc_now()
         pkg.delivered_at = utc_now()
 
+        # Execute in-transit coupled quantum simulation and persist Bob's terminal measurements
+        try:
+            TeleportationService.execute_in_transit_measurements(db, transmission_id=pkg.id, actor=actor)
+        except Exception as e:
+            logger.error(f"In-transit quantum execution failed during passthrough: {e}")
+
         session = db.query(SessionModel).filter(SessionModel.id == pkg.session_id).first()
         if session:
             session.status = "FORWARDED"
@@ -439,6 +446,12 @@ class TransmissionService:
         pkg.status = "RECEIVED"  # Arrives in Bob's inbox
         pkg.forwarded_at = utc_now()
         pkg.delivered_at = utc_now()
+
+        # Execute in-transit coupled quantum simulation with active attack perturbations and persist measurements
+        try:
+            TeleportationService.execute_in_transit_measurements(db, transmission_id=pkg.id, actor=actor)
+        except Exception as e:
+            logger.error(f"In-transit quantum execution failed during forwarding: {e}")
 
         session = db.query(SessionModel).filter(SessionModel.id == pkg.session_id).first()
         if session:

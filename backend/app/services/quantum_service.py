@@ -1,6 +1,7 @@
 """
 Quantum Microservice Client Interface.
-Dispatches quantum circuit execution requests to the CUDA-Q microservice.
+Dispatches quantum circuit execution requests to the CUDA-Q microservice,
+including coupled SeQUeNCe network simulation and pre-measurement physical perturbations.
 """
 import httpx
 import logging
@@ -19,7 +20,7 @@ def get_quantum_http_client() -> httpx.Client:
     global _persistent_client
     if _persistent_client is None or _persistent_client.is_closed:
         _persistent_client = httpx.Client(
-            timeout=60.0,
+            timeout=120.0,
             limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
         )
     return _persistent_client
@@ -29,7 +30,7 @@ def get_quantum_async_client() -> httpx.AsyncClient:
     global _persistent_async_client
     if _persistent_async_client is None or _persistent_async_client.is_closed:
         _persistent_async_client = httpx.AsyncClient(
-            timeout=60.0,
+            timeout=120.0,
             limits=httpx.Limits(max_keepalive_connections=20, max_connections=50)
         )
     return _persistent_async_client
@@ -54,7 +55,8 @@ class QuantumService:
         sha512_digest: str,
         start_index: int,
         batch_size: int,
-        total_count: int = 4096
+        total_count: int = 4096,
+        simulation_seed: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Sends a batch teleportation request to the CUDA-Q microservice using persistent keep-alive client.
@@ -64,7 +66,8 @@ class QuantumService:
             "sha512_digest": sha512_digest,
             "start_index": start_index,
             "batch_size": batch_size,
-            "total_count": total_count
+            "total_count": total_count,
+            "simulation_seed": simulation_seed
         }
 
         global _persistent_client
@@ -95,11 +98,103 @@ class QuantumService:
                 raise QuantumExecutionError(f"Failed to communicate with quantum microservice: {str(e)}")
 
     @staticmethod
+    def execute_coupled_teleportation(
+        sha512_digest: str,
+        start_index: int = 0,
+        batch_size: int = 4096,
+        total_count: int = 4096,
+        fiber_distance_km: float = 25.0,
+        attenuation_db_per_km: float = 0.20,
+        active_attack: Optional[str] = None,
+        attack_params: Optional[Dict[str, Any]] = None,
+        noise_mode: str = "DEMO",
+        simulation_seed: Optional[int] = None
+    ) -> Dict[str, Any]:
+        """
+        Executes coupled SeQUeNCe discrete-event network simulation and CUDA-Q 3-qubit
+        teleportation execution with pre-measurement physical perturbations.
+        """
+        url = f"{settings.QUANTUM_SERVICE_URL}/teleport/execute-coupled"
+        payload = {
+            "sha512_digest": sha512_digest,
+            "start_index": start_index,
+            "batch_size": batch_size,
+            "total_count": total_count,
+            "fiber_distance_km": fiber_distance_km,
+            "attenuation_db_per_km": attenuation_db_per_km,
+            "active_attack": active_attack,
+            "attack_params": attack_params,
+            "noise_mode": noise_mode,
+            "simulation_seed": simulation_seed
+        }
+
+        global _persistent_client
+        for attempt in range(2):
+            try:
+                client = get_quantum_http_client()
+                res = client.post(url, json=payload)
+                if res.status_code == 200:
+                    return res.json()["data"]
+                elif res.status_code == 503:
+                    detail = res.json().get("detail", "CUDA-Q unavailable")
+                    raise CudaQUnavailableError(detail)
+                else:
+                    detail = res.json().get("detail", "Unknown quantum error")
+                    raise QuantumExecutionError(f"Coupled quantum execution failed: {detail}")
+            except (CudaQUnavailableError, QuantumExecutionError):
+                if active_attack is None and attack_params is None:
+                    try:
+                        return QuantumService.execute_teleportation_batch(
+                            sha512_digest=sha512_digest,
+                            start_index=start_index,
+                            batch_size=batch_size,
+                            total_count=total_count,
+                            simulation_seed=simulation_seed
+                        )
+                    except Exception:
+                        pass
+                raise
+            except (httpx.RemoteProtocolError, httpx.ConnectError, httpx.ReadError) as e:
+                if _persistent_client and not _persistent_client.is_closed:
+                    try:
+                        _persistent_client.close()
+                    except Exception:
+                        pass
+                _persistent_client = None
+                if attempt == 1:
+                    if active_attack is None and attack_params is None:
+                        try:
+                            return QuantumService.execute_teleportation_batch(
+                                sha512_digest=sha512_digest,
+                                start_index=start_index,
+                                batch_size=batch_size,
+                                total_count=total_count,
+                                simulation_seed=simulation_seed
+                            )
+                        except Exception:
+                            pass
+                    raise QuantumExecutionError(f"Failed to communicate with quantum microservice: {str(e)}")
+            except Exception as e:
+                if active_attack is None and attack_params is None:
+                    try:
+                        return QuantumService.execute_teleportation_batch(
+                            sha512_digest=sha512_digest,
+                            start_index=start_index,
+                            batch_size=batch_size,
+                            total_count=total_count,
+                            simulation_seed=simulation_seed
+                        )
+                    except Exception:
+                        pass
+                raise QuantumExecutionError(f"Failed to communicate with quantum microservice: {str(e)}")
+
+    @staticmethod
     async def execute_teleportation_batch_async(
         sha512_digest: str,
         start_index: int,
         batch_size: int,
-        total_count: int = 4096
+        total_count: int = 4096,
+        simulation_seed: Optional[int] = None
     ) -> Dict[str, Any]:
         """
         Asynchronously sends a batch teleportation request to the CUDA-Q microservice using persistent AsyncClient.
@@ -109,7 +204,8 @@ class QuantumService:
             "sha512_digest": sha512_digest,
             "start_index": start_index,
             "batch_size": batch_size,
-            "total_count": total_count
+            "total_count": total_count,
+            "simulation_seed": simulation_seed
         }
 
         global _persistent_async_client

@@ -18,6 +18,8 @@ from ..core.config import settings
 
 logger = logging.getLogger("zaslon.services.file")
 
+CHUNK_SIZE = 64 * 1024
+MAX_FILE_SIZE_BYTES = 2 * 1024 * 1024 * 1024  # 2 GiB default
 BASE_UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "uploads")
 
 

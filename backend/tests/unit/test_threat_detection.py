@@ -70,19 +70,23 @@ def _setup_completed_session(db, session_id="test-session-001", signer="Alice", 
     )
     db.add(q_run)
 
-    # Add Authentic Measurements (all matching)
+    # Add Authentic Measurements (all matching derived expected bits from digest)
+    from backend.app.core.state_prep import derive_teleportation_parameters
+    derived_states = derive_teleportation_parameters(digest, total_count=total_ops)
     for i in range(total_ops):
+        p = derived_states[i] if i < len(derived_states) else {"expected_bit": 0, "prep_theta": 0.0, "prep_phi": 0.0}
+        exp_bit = p["expected_bit"]
         m = MeasurementModel(
             quantum_run_id=q_run.id,
             operation_index=i,
-            prep_theta=0.0,
-            prep_phi=0.0,
-            expected_bit=0,
+            prep_theta=p["prep_theta"],
+            prep_phi=p["prep_phi"],
+            expected_bit=exp_bit,
             alice_m0=0,
             alice_m1=0,
             bob_correction_x=0,
             bob_correction_z=0,
-            bob_observed_bit=0,
+            bob_observed_bit=exp_bit,
             is_match=True
         )
         db.add(m)

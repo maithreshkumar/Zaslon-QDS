@@ -27,6 +27,7 @@ class SecurityVerdicts:
     # Signature Verification Status
     VERIFIED = "VERIFIED"
     REJECTED = "REJECTED"
+    INCONCLUSIVE = "INCONCLUSIVE"
     
     # Integrity Status
     INTEGRITY_VALID = "INTEGRITY_VALID"
@@ -88,7 +89,7 @@ class ThreatCategories:
     QUANTUM_STATE_REPLACEMENT = "QUANTUM_STATE_REPLACEMENT"
 
     # Legacy Backward-Compatibility Alias
-    INTEGRITY_TAMPERING = "INTEGRITY_TAMPERING"
+    INTEGRITY_TAMPERING = "FILE_INTEGRITY_TAMPERING"
 
     ALL_ATTACK_VECTORS = [
         # Canonical 13

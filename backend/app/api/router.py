@@ -20,6 +20,7 @@ api_router.include_router(qds.router, prefix="/sessions", tags=["QDS Cryptograph
 api_router.include_router(quantum.router, prefix="/sessions", tags=["Quantum Teleportation"])
 api_router.include_router(declarations.router, prefix="/sessions", tags=["Public Declarations"])
 api_router.include_router(verification.router, prefix="/sessions", tags=["Verification & Statistics"])
+api_router.include_router(verification.router, prefix="/verification", tags=["Verification Direct"])
 api_router.include_router(attacks.router, prefix="/sessions", tags=["Attack Simulation"])
 api_router.include_router(audit.router, prefix="/audit-trail", tags=["Audit Trail"])
 api_router.include_router(audit.router, prefix="/audit", tags=["Audit Trail"])
